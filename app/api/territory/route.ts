@@ -1,3 +1,5 @@
+import { authErrorResponse, requireViewer } from "../../../lib/auth";
+
 export const dynamic = "force-dynamic";
 
 type PostcodeRecord = {
@@ -22,6 +24,11 @@ function cleanPostcode(value: string) {
 }
 
 export async function GET(request: Request) {
+  try {
+    await requireViewer();
+  } catch (error) {
+    return authErrorResponse(error);
+  }
   const input = cleanPostcode(new URL(request.url).searchParams.get("postcode") ?? "");
   if (!/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/.test(input.replace(/\s/g, ""))) {
     return Response.json({ error: "Enter a complete UK postcode, for example SO21 1BT." }, { status: 400 });
@@ -64,7 +71,7 @@ export async function GET(request: Request) {
       nearest,
       source: "Postcodes.io · ONS Postcode Directory",
       checkedAt: new Date().toISOString(),
-    }, { headers: { "cache-control": "public, max-age=3600, stale-while-revalidate=86400" } });
+    }, { headers: { "cache-control": "private, max-age=3600" } });
   } catch (error) {
     const message = error instanceof Error && error.name === "AbortError" ? "Postcode lookup timed out. Please try again." : "Live postcode data is temporarily unavailable.";
     return Response.json({ error: message }, { status: 503 });

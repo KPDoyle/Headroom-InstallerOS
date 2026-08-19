@@ -28,13 +28,15 @@ The application links to the MCS Product Directory, MCS Standards & Tools Librar
 
 ## Data and files
 
-- Private Vercel Blob storage holds the shared organisation workspace state.
-- Private Vercel Blob storage also holds evidence and handover documents up to 10 MB each; files are streamed through the application rather than exposed publicly.
-- Registered in-app users can be suspended, while administration changes require an Administrator role when an authenticated identity header is supplied by the access layer.
-- Administration changes, access decisions, workflow controls and data operations are recorded in the searchable audit history.
-- If hosted storage is unavailable, the browser clearly switches to `LOCAL` fallback mode instead of losing changes.
+- Supabase Auth provides passwordless, individual installer accounts and secure server-managed sessions.
+- Supabase Postgres holds organisation-scoped workspace data, account profiles and durable audit events.
+- The private Supabase `installer-documents` bucket holds evidence and handover documents up to 10 MB; files are streamed through authenticated application routes.
+- Row-level security isolates each organisation. Administrators manage users, roles and suspension; Auditors receive read-only access.
+- There is no local-browser data fallback. If the shared service is unavailable, the interface reports the failed save instead of creating an ungoverned copy.
 
-The Vercel project requires a connected private Blob store. Vercel automatically supplies `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` with its rotating deployment OIDC token.
+Connect a Supabase integration to the Vercel project for Production, Preview and Development. The application accepts the current `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` names and the legacy anon / service-role names. It also requires `POSTGRES_URL_NON_POOLING` (or `POSTGRES_URL` / `DATABASE_URL`). See `.env.example`.
+
+On the first successful health check the server idempotently installs the maintained schema and private storage policies. The first person to use **Create the first administrator** becomes the only bootstrap administrator; after that, accounts must be invited from Administration Centre.
 
 ## Development
 
@@ -54,15 +56,19 @@ npm test
 npm run build
 ```
 
-The normal `npm run build` creates and validates the Vinext/Cloudflare Worker artifact. Setting `VERCEL=1` creates a standard Next.js production build for Vercel.
+`npm run build` creates the same native Next.js production artifact used by Vercel.
 
 ## Project structure
 
-- `app/page.tsx` — Headroom interface and installer workflows
-- `app/api/workspace/route.ts` — private Vercel Blob workspace API
-- `app/api/files/route.ts` — private Vercel Blob evidence and document API
+- `app/page.tsx` — authenticated server entry point
+- `app/installer-app.tsx` — Headroom interface and installer workflows
+- `app/api/workspace/route.ts` — organisation-scoped Supabase Postgres workspace API
+- `app/api/files/route.ts` — authenticated private Supabase document API
+- `app/api/admin/users/*` — invitations, roles, status and access administration
 - `app/api/territory/route.ts` — live UK postcode intelligence API
-- `app/api/health/route.ts` — deployment and storage health signal
+- `app/api/health/route.ts` — deployment, database and storage readiness signal
+- `lib/schema.ts` / `supabase/migrations/*` — database and row-level security schema
+- `proxy.ts` — Supabase session refresh and route protection
 - `vercel.json` — explicit native Next.js build configuration
 - `.github/workflows/ci.yml` — GitHub checks for tests, lint, types and production build
 
