@@ -28,7 +28,8 @@ The application links to the MCS Product Directory, MCS Standards & Tools Librar
 
 ## Data and files
 
-- Supabase Auth provides passwordless, individual installer accounts and secure server-managed sessions.
+- The current staged release runs in a clearly labelled public-preview mode with one shared Administrator workspace and no login prompt.
+- Supabase Auth remains implemented for passwordless, individual installer accounts and secure server-managed sessions when access control is switched back on.
 - Supabase Postgres holds organisation-scoped workspace data, account profiles and durable audit events.
 - The private Supabase `installer-documents` bucket holds evidence and handover documents up to 10 MB; files are streamed through authenticated application routes.
 - Row-level security isolates each organisation. Administrators manage users, roles and suspension; Auditors receive read-only access.
@@ -36,7 +37,9 @@ The application links to the MCS Product Directory, MCS Standards & Tools Librar
 
 Connect a Supabase integration to the Vercel project for Production, Preview and Development. The application accepts the current `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` names and the legacy anon / service-role names. It also requires `POSTGRES_URL_NON_POOLING` (or `POSTGRES_URL` / `DATABASE_URL`). See `.env.example`.
 
-On the first successful health check the server idempotently installs the maintained schema and private storage policies. The first person to use **Create the first administrator** becomes the only bootstrap administrator; after that, accounts must be invited from Administration Centre.
+On the first successful health check the server idempotently installs the maintained schema and private storage policies. Set `HEADROOM_REQUIRE_LOGIN=true` in Vercel and redeploy when individual accounts should become mandatory. The first authenticated person then becomes the bootstrap Administrator; subsequent accounts are invited from Administration Centre.
+
+Public-preview mode is intended for demonstration and product development only. Anyone with the URL can view or change the shared workspace, so do not enter live customer information until login is re-enabled.
 
 ## Development
 

@@ -1,4 +1,5 @@
 import { ensureSchema, getDatabase } from "../../../lib/database";
+import { isPublicAccessEnabled } from "../../../lib/public-access";
 import { isSupabaseConfigured } from "../../../lib/supabase/config";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export async function GET() {
     return Response.json({
       status: "configuration-required",
       app: "Headroom Installer OS",
+      access: isPublicAccessEnabled() ? "public-preview" : "authenticated",
       auth: "not-configured",
       database: "not-configured",
       storage: "not-configured",
@@ -25,6 +27,7 @@ export async function GET() {
     return Response.json({
       status: "ok",
       app: "Headroom Installer OS",
+      access: isPublicAccessEnabled() ? "public-preview" : "authenticated",
       auth: "supabase-auth",
       database: "supabase-postgres",
       storage: "supabase-private-storage",
@@ -37,6 +40,7 @@ export async function GET() {
     return Response.json({
       status: "degraded",
       app: "Headroom Installer OS",
+      access: isPublicAccessEnabled() ? "public-preview" : "authenticated",
       auth: "supabase-auth",
       database: "unavailable",
       storage: "unavailable",

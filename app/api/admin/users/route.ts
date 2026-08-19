@@ -1,6 +1,7 @@
 import { authErrorResponse, requireAdministrator, writeAuditEvent } from "../../../../lib/auth";
 import { isUserRole, type UserRole, type UserStatus } from "../../../../lib/auth-types";
 import { getDatabase } from "../../../../lib/database";
+import { isPublicAccessViewer } from "../../../../lib/public-access";
 import { createAdminClient } from "../../../../lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,18 @@ export async function GET() {
       where organisation_id = ${viewer.organisationId}
       order by created_at asc
     `;
-    return Response.json({ users: profiles.map(adminUser) }, { headers: { "cache-control": "no-store" } });
+    const users = profiles.map(adminUser);
+    if (isPublicAccessViewer(viewer)) {
+      users.unshift({
+        id: viewer.id,
+        name: viewer.fullName,
+        email: viewer.email,
+        role: viewer.role,
+        status: viewer.status,
+        lastActive: "Public access enabled",
+      });
+    }
+    return Response.json({ users }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return authErrorResponse(error);
   }
@@ -65,6 +77,7 @@ export async function POST(request: Request) {
     if (existing[0]) return Response.json({ error: "That email already belongs to this workspace" }, { status: 409 });
 
     const redirectTo = `${new URL(request.url).origin}/auth/confirm?next=/`;
+    const invitedBy = isPublicAccessViewer(viewer) ? null : viewer.id;
     const supabase = createAdminClient();
     const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
       redirectTo,
@@ -78,7 +91,7 @@ export async function POST(request: Request) {
       insert into public.profiles (
         id, organisation_id, full_name, email, role, status, invited_by
       ) values (
-        ${data.user.id}, ${viewer.organisationId}, ${name}, ${email}, ${role}, 'Invited', ${viewer.id}
+        ${data.user.id}, ${viewer.organisationId}, ${name}, ${email}, ${role}, 'Invited', ${invitedBy}
       )
       on conflict (id) do update
       set organisation_id = excluded.organisation_id, full_name = excluded.full_name,
@@ -92,4 +105,3 @@ export async function POST(request: Request) {
     return authErrorResponse(error);
   }
 }
-

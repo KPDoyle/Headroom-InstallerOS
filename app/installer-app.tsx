@@ -708,7 +708,7 @@ function TerritoryView() {
 }
 
 function AdminView() {
-  const { data, setData, openDialog, recordAudit, showToast, storageMode } = useOS();
+  const { data, setData, openDialog, recordAudit, showToast, storageMode, viewer } = useOS();
   const [auditQuery, setAuditQuery] = useState("");
   const [auditCategory, setAuditCategory] = useState("All activity");
   const activeUsers = data.adminUsers.filter((user) => user.status === "Active").length;
@@ -748,7 +748,7 @@ function AdminView() {
     <section className="admin-grid">
       <article className="workspace-card admin-users-card">
         <div className="table-toolbar"><div><span className="eyebrow">USERS & ACCESS</span><h2>Workspace team</h2></div><div className="toolbar-actions"><button onClick={() => { downloadText("headroom-users.csv", ["name,email,role,status,last_active", ...data.adminUsers.map((user) => [user.name,user.email,user.role,user.status,user.lastActive].join(","))].join("\n"), "text/csv"); showToast("User register exported."); }}><Download size={15}/>Export</button><button onClick={() => openDialog("admin-user")}><Plus size={15}/>Invite user</button></div></div>
-        <div className="admin-user-list"><div className="admin-user-row admin-user-head"><span>User</span><span>Role</span><span>Status</span><span>Last active</span><span>Controls</span></div>{data.adminUsers.map((user) => <div className="admin-user-row" key={user.id}><span className="admin-person"><i className="avatar">{user.name.split(" ").map((part) => part[0]).join("").slice(0,2)}</i><span><strong>{user.name}</strong><small>{user.email}</small></span></span><span><select value={user.role} onChange={(event) => void changeUser(user.id, { role: event.target.value as AdminUser["role"] }, `Role changed to ${event.target.value}`)} aria-label={`Role for ${user.name}`}>{roles.map((role) => <option key={role}>{role}</option>)}</select></span><span><i className={`admin-state ${user.status.toLowerCase()}`}>{user.status}</i></span><span>{user.lastActive}</span><span className="admin-row-actions">{user.status === "Invited" && <button onClick={() => void resendInvitation(user)} aria-label={`Resend invitation to ${user.name}`}><Mail size={14}/></button>}<button onClick={() => void changeUser(user.id, { status: user.status === "Suspended" ? "Active" : "Suspended", lastActive: user.status === "Suspended" ? "Reactivated now" : user.lastActive }, user.status === "Suspended" ? "User reactivated" : "User suspended")} aria-label={user.status === "Suspended" ? `Reactivate ${user.name}` : `Suspend ${user.name}`}><ShieldCheck size={14}/></button></span></div>)}</div>
+        <div className="admin-user-list"><div className="admin-user-row admin-user-head"><span>User</span><span>Role</span><span>Status</span><span>Last active</span><span>Controls</span></div>{data.adminUsers.map((user) => <div className="admin-user-row" key={user.id}><span className="admin-person"><i className="avatar">{user.name.split(" ").map((part) => part[0]).join("").slice(0,2)}</i><span><strong>{user.name}</strong><small>{user.email}</small></span></span><span><select value={user.role} disabled={user.id === viewer.id} onChange={(event) => void changeUser(user.id, { role: event.target.value as AdminUser["role"] }, `Role changed to ${event.target.value}`)} aria-label={`Role for ${user.name}`}>{roles.map((role) => <option key={role}>{role}</option>)}</select></span><span><i className={`admin-state ${user.status.toLowerCase()}`}>{user.status}</i></span><span>{user.lastActive}</span><span className="admin-row-actions">{user.id === viewer.id ? <small>Current access</small> : <>{user.status === "Invited" && <button onClick={() => void resendInvitation(user)} aria-label={`Resend invitation to ${user.name}`}><Mail size={14}/></button>}<button onClick={() => void changeUser(user.id, { status: user.status === "Suspended" ? "Active" : "Suspended", lastActive: user.status === "Suspended" ? "Reactivated now" : user.lastActive }, user.status === "Suspended" ? "User reactivated" : "User suspended")} aria-label={user.status === "Suspended" ? `Reactivate ${user.name}` : `Suspend ${user.name}`}><ShieldCheck size={14}/></button></>}</span></div>)}</div>
       </article>
 
       <aside className="workspace-card admin-policy-card">
@@ -808,6 +808,7 @@ function InstallerApp() {
   const searchRef = useRef<HTMLInputElement>(null);
   const canAdminister = viewer.role === "Administrator";
   const canWrite = viewer.role !== "Auditor";
+  const isPublicPreview = viewer.id === "public-preview";
   const visibleNavigation = canAdminister ? navItems : navItems.filter((item) => item.id !== "admin");
   const openView = (view: View) => { setActive(view === "admin" && !canAdminister ? "overview" : view); setMenuOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); searchRef.current?.focus(); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
@@ -829,7 +830,7 @@ function InstallerApp() {
         <div className="sidebar-footer">
           <div className="scheme-card"><div><ShieldCheck size={17} /><span>MCS Scheme</span></div><strong>{data.adminSettings.mcsNumber}</strong><small>Audit readiness 92%</small><div className="thin-progress"><span style={{ width: "92%" }} /></div></div>
           {canAdminister && <button className="settings-button" onClick={() => openView("admin")}><Settings size={17} /> Administration centre</button>}
-          <div className="user-row"><span className="avatar">{viewer.fullName.split(" ").map((part) => part[0]).join("").slice(0,2) || "HR"}</span><span><strong>{viewer.fullName}</strong><small>{viewer.role}</small></span><button className="signout-icon" onClick={() => void signOut()} aria-label="Sign out"><LogOut size={17}/></button></div>
+          <div className="user-row"><span className="avatar">{viewer.fullName.split(" ").map((part) => part[0]).join("").slice(0,2) || "HR"}</span><span><strong>{viewer.fullName}</strong><small>{viewer.role}</small></span>{!isPublicPreview && <button className="signout-icon" onClick={() => void signOut()} aria-label="Sign out"><LogOut size={17}/></button>}</div>
         </div>
       </aside>
       {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
@@ -838,6 +839,7 @@ function InstallerApp() {
           <div className="topbar-left"><button className="menu-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div><span className="breadcrumb">INSTALLER OS /</span><strong>{visibleNavigation.find((item) => item.id === active)?.label}</strong></div></div>
           <div className="topbar-actions">
             <label className="quick-search"><Search size={16} /><input ref={searchRef} value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") runSearch(); }} aria-label="Search projects" placeholder="Search projects" /><kbd>⌘ K</kbd></label>
+            {isPublicPreview && <span className="public-preview-chip">PUBLIC PREVIEW · LOGIN OFF</span>}
             <span className={`sync-chip ${storageMode}`} title={storageMode === "cloud" ? "Supabase workspace saved" : storageMode === "error" ? "Shared save needs attention" : "Connecting to Supabase"}>{storageMode === "cloud" ? "SAVED" : storageMode === "error" ? "ERROR" : "SYNC"}</span>
             <button className="icon-button" aria-label="Notifications" onClick={() => openDialog("notifications")}><Bell size={18} />{data.notifications.some((item) => !item.read) && <i />}</button>
             <button className="icon-button help-button" aria-label="Official installer resources" onClick={() => openDialog("settings")}><HelpCircle size={18}/></button>

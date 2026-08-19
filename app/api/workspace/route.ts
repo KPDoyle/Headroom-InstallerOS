@@ -2,6 +2,7 @@ import type { UserRole, UserStatus, Viewer } from "../../../lib/auth-types";
 import type postgres from "postgres";
 import { authErrorResponse, requireViewer, writeAuditEvent } from "../../../lib/auth";
 import { getDatabase } from "../../../lib/database";
+import { isPublicAccessViewer } from "../../../lib/public-access";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,18 @@ async function organisationUsers(viewer: Viewer) {
     where organisation_id = ${viewer.organisationId}
     order by created_at asc
   `;
-  return profiles.map(profileToAdminUser);
+  const users = profiles.map(profileToAdminUser);
+  if (isPublicAccessViewer(viewer)) {
+    users.unshift({
+      id: viewer.id,
+      name: viewer.fullName,
+      email: viewer.email,
+      role: viewer.role,
+      status: viewer.status,
+      lastActive: "Public access enabled",
+    });
+  }
+  return users;
 }
 
 export async function GET() {
@@ -113,6 +125,7 @@ export async function PUT(request: Request) {
     const currentRows = await sql<{ state: Record<string, unknown> }[]>`
       select state from public.workspaces where organisation_id = ${viewer.organisationId}
     `;
+    const updatedBy = isPublicAccessViewer(viewer) ? null : viewer.id;
     const current = currentRows[0]?.state ?? {};
     const stateToPersist = { ...stateObject };
     delete stateToPersist.adminUsers;
@@ -125,7 +138,7 @@ export async function PUT(request: Request) {
 
     const rows = await sql<{ updated_at: string }[]>`
       insert into public.workspaces (organisation_id, state, updated_by, updated_at)
-      values (${viewer.organisationId}, ${sql.json(stateToPersist as postgres.JSONValue)}, ${viewer.id}, now())
+      values (${viewer.organisationId}, ${sql.json(stateToPersist as postgres.JSONValue)}, ${updatedBy}, now())
       on conflict (organisation_id) do update
       set state = excluded.state, updated_by = excluded.updated_by, updated_at = now()
       returning updated_at

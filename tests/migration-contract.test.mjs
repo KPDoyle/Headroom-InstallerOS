@@ -30,13 +30,25 @@ test("persists organisation workspace and files through Supabase", async () => {
 
 test("protects application routes and exposes real account administration", async () => {
   const proxy = await read("lib/supabase/proxy.ts");
+  const publicAccess = await read("lib/public-access.ts");
   const adminUsers = await read("app/api/admin/users/route.ts");
   const adminUser = await read("app/api/admin/users/[id]/route.ts");
   assert.match(proxy, /getClaims/);
+  assert.match(proxy, /isPublicAccessEnabled/);
   assert.match(proxy, /\/login/);
+  assert.match(publicAccess, /HEADROOM_REQUIRE_LOGIN/);
+  assert.match(publicAccess, /public-preview/);
   assert.match(adminUsers, /inviteUserByEmail/);
   assert.match(adminUser, /updateUserById/);
   assert.match(adminUser, /At least one active administrator is required/);
+});
+
+test("labels the staged public workspace and preserves the login switch", async () => {
+  const installer = await read("app/installer-app.tsx");
+  const health = await read("app/api/health/route.ts");
+  assert.match(installer, /PUBLIC PREVIEW · LOGIN OFF/);
+  assert.match(health, /public-preview/);
+  assert.match(health, /authenticated/);
 });
 
 test("keeps live Territory Intelligence behind a server route", async () => {

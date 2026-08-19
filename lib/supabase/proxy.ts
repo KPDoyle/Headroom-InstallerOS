@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabasePublicConfig } from "./config";
+import { isPublicAccessEnabled } from "../public-access";
 
 const PUBLIC_PATHS = ["/login", "/auth/", "/api/health"];
 
@@ -9,6 +10,7 @@ function isPublicPath(pathname: string) {
 }
 
 export async function updateSession(request: NextRequest) {
+  if (isPublicAccessEnabled()) return NextResponse.next({ request });
   const config = getSupabasePublicConfig();
   if (!config) return NextResponse.next({ request });
 
@@ -33,4 +35,3 @@ export async function updateSession(request: NextRequest) {
   }
   return response;
 }
-

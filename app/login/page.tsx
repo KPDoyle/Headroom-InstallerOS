@@ -1,4 +1,6 @@
 import LoginForm from "./login-form";
+import { redirect } from "next/navigation";
+import { isPublicAccessEnabled } from "../../lib/public-access";
 import { isSupabaseConfigured } from "../../lib/supabase/config";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +10,7 @@ type LoginPageProps = {
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  if (isPublicAccessEnabled()) redirect("/");
   const params = await searchParams;
   return (
     <main className="auth-shell">
@@ -26,4 +29,3 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     </main>
   );
 }
-

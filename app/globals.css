@@ -506,6 +506,7 @@ button.project-row:hover { background: #f9fbfd; }
 .resource-list svg { color: var(--blue); }
 .notification-list button { grid-template-columns: 28px 1fr; }.notification-list button>span:first-child { width: 26px; height: 26px; display: grid; place-items: center; color: #986f00; background: var(--gold-soft); border-radius: 50%; }.notification-list button.read { opacity: .62; }.notification-list button.read>span:first-child { color: var(--green); background: var(--green-soft); }
 .sync-chip { min-width: 43px; height: 20px; display: grid; place-items: center; color: #0d8155; background: var(--green-soft); border-radius: 10px; font-size: 6px; font-weight: 800; letter-spacing: .45px; }.sync-chip.local { color: #896600; background: var(--gold-soft); }.sync-chip.loading { color: #64768b; background: #edf1f5; }
+.public-preview-chip { height: 22px; display: grid; place-items: center; padding: 0 9px; color: #765600; background: var(--gold-soft); border: 1px solid #efdb95; border-radius: 11px; font-size: 6.5px; font-weight: 800; letter-spacing: .55px; white-space: nowrap; }
 .empty-state { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #8a97a7; }.empty-state strong { color: var(--ink); font-size: 10px; }.empty-state span { font-size: 8px; }
 .active-filter { color: #886600!important; background: var(--gold-soft)!important; border-color: #e4d48e!important; }
 .official-link { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 10px; color: #226cbf; background: var(--blue-soft); border-radius: 6px; font-size: 7.5px; font-weight: 700; text-decoration: none; }
@@ -516,7 +517,7 @@ button.project-row:hover { background: #f9fbfd; }
 
 @media (max-width:620px) {
   .dialog-card { padding: 24px 18px; }.dialog-pair { grid-template-columns: 1fr; }.dialog-backdrop { padding: 12px; }
-  .sync-chip,.help-button { display: none; }.toast { right: 16px; bottom: 16px; }
+  .sync-chip,.public-preview-chip,.help-button { display: none; }.toast { right: 16px; bottom: 16px; }
   .segment-picker { flex-wrap: wrap; justify-content: flex-end; }.postcode-field { order: -1; }
   .stacked-actions { grid-template-columns: 1fr; }
 }
@@ -532,9 +533,10 @@ button.project-row:hover { background: #f9fbfd; }
 .admin-person { display: flex; align-items: center; gap: 9px; }.admin-person>.avatar { flex: 0 0 auto; font-style: normal; }
 .admin-person>span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }.admin-person strong { color: var(--ink); font-size: 8.5px; }.admin-person small { overflow: hidden; color: #8996a7; font-size: 6.8px; text-overflow: ellipsis; }
 .admin-user-row select { width: 100%; height: 30px; padding: 0 7px; color: #50647b; background: white; border: 1px solid #dce3eb; border-radius: 5px; font-size: 7.5px; }
+.admin-user-row select:disabled { color: #7d8998; background: #f3f6f8; cursor: not-allowed; }
 .admin-state { display: inline-flex; align-items: center; padding: 5px 7px; color: #0e8256; background: var(--green-soft); border-radius: 10px; font-size: 6.7px; font-style: normal; font-weight: 700; }
 .admin-state.invited { color: #8f6d00; background: var(--gold-soft); }.admin-state.suspended { color: #9b4545; background: #fff0f0; }
-.admin-row-actions { display: flex; justify-content: flex-end; gap: 5px; }.admin-row-actions button { width: 28px; height: 28px; display: grid; place-items: center; color: #61758c; background: white; border: 1px solid var(--line); border-radius: 5px; }
+.admin-row-actions { display: flex; justify-content: flex-end; gap: 5px; }.admin-row-actions button { width: 28px; height: 28px; display: grid; place-items: center; color: #61758c; background: white; border: 1px solid var(--line); border-radius: 5px; }.admin-row-actions small { color: #8a96a5; font-size: 7px; white-space: nowrap; }
 .admin-policy-card { overflow: hidden; }.policy-list { display: flex; flex-direction: column; padding: 5px 16px 12px; }
 .policy-row { min-height: 67px; display: grid; grid-template-columns: 1fr 36px; align-items: center; gap: 10px; padding: 0; color: var(--ink); background: white; border: 0; border-bottom: 1px solid #edf1f5; text-align: left; }.policy-row:last-child { border-bottom: 0; }
 .policy-row>span { display: flex; flex-direction: column; gap: 4px; }.policy-row strong { font-size: 8px; }.policy-row small { color: #8996a7; font-size: 6.8px; line-height: 1.45; }

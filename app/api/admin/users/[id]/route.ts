@@ -1,6 +1,7 @@
 import { authErrorResponse, requireAdministrator, writeAuditEvent } from "../../../../../lib/auth";
 import { isUserRole, type UserRole, type UserStatus } from "../../../../../lib/auth-types";
 import { getDatabase } from "../../../../../lib/database";
+import { PUBLIC_ACCESS_VIEWER_ID } from "../../../../../lib/public-access";
 import { createAdminClient } from "../../../../../lib/supabase/admin";
 
 type RouteProps = { params: Promise<{ id: string }> };
@@ -25,6 +26,9 @@ export async function PATCH(request: Request, { params }: RouteProps) {
   try {
     const viewer = await requireAdministrator();
     const { id } = await params;
+    if (id === PUBLIC_ACCESS_VIEWER_ID) {
+      return Response.json({ error: "Public preview access is managed by the deployment setting" }, { status: 400 });
+    }
     const payload = await request.json() as { role?: unknown; status?: unknown; action?: unknown };
     const sql = getDatabase();
     const existingRows = await sql<ProfileRow[]>`
@@ -83,4 +87,3 @@ export async function PATCH(request: Request, { params }: RouteProps) {
     return authErrorResponse(error);
   }
 }
-

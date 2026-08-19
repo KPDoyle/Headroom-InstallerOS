@@ -1,6 +1,12 @@
 import type { User } from "@supabase/supabase-js";
 import { ensureSchema, getDatabase } from "./database";
 import type { UserRole, UserStatus, Viewer } from "./auth-types";
+import {
+  createPublicViewer,
+  isPublicAccessEnabled,
+  isPublicAccessViewer,
+  PUBLIC_ACCESS_ORGANISATION_ID,
+} from "./public-access";
 import { createClient } from "./supabase/server";
 
 type ProfileRow = {
@@ -45,6 +51,27 @@ async function findProfile(userId: string) {
   return rows[0] ?? null;
 }
 
+async function publicViewer() {
+  const sql = getDatabase();
+  const organisation = await sql.begin(async (transaction) => {
+    await transaction`select pg_advisory_xact_lock(hashtext('headroom-public-preview'))`;
+    const existing = await transaction<{ id: string; name: string }[]>`
+      select id, name from public.organisations order by created_at asc limit 1
+    `;
+    if (existing[0]) return existing[0];
+    const created = await transaction<{ id: string; name: string }[]>`
+      insert into public.organisations (id, name)
+      values (${PUBLIC_ACCESS_ORGANISATION_ID}, 'Headroom Installer Organisation')
+      returning id, name
+    `;
+    return created[0];
+  });
+  if (!organisation) {
+    throw new ViewerAccessError("access-unavailable", "Public preview workspace could not be initialised");
+  }
+  return createPublicViewer(organisation.id, organisation.name);
+}
+
 function userDisplayName(user: User) {
   const metadataName = user.user_metadata?.full_name || user.user_metadata?.name;
   return typeof metadataName === "string" && metadataName.trim()
@@ -78,12 +105,20 @@ async function bootstrapFirstAdministrator(user: User) {
       typeof user.user_metadata?.organisation_name === "string" && user.user_metadata.organisation_name.trim()
         ? user.user_metadata.organisation_name.trim()
         : "Headroom Installer Organisation";
-    const organisations = await transaction<{ id: string; name: string }[]>`
-      insert into public.organisations (name, created_by)
-      values (${organisationName}, ${user.id})
-      returning id, name
+    const existingOrganisations = await transaction<{ id: string; name: string }[]>`
+      select id, name from public.organisations order by created_at asc limit 1
     `;
+    const organisations = existingOrganisations[0]
+      ? existingOrganisations
+      : await transaction<{ id: string; name: string }[]>`
+          insert into public.organisations (name, created_by)
+          values (${organisationName}, ${user.id})
+          returning id, name
+        `;
     const organisation = organisations[0];
+    if (!organisation) {
+      throw new ViewerAccessError("access-unavailable", "Workspace organisation could not be created");
+    }
     const fullName = userDisplayName(user);
     const email = user.email?.trim().toLowerCase() || "administrator@installer.local";
     const profiles = await transaction<ProfileRow[]>`
@@ -101,6 +136,7 @@ async function bootstrapFirstAdministrator(user: User) {
 
 export async function getViewer(): Promise<Viewer | null> {
   await ensureSchema();
+  if (isPublicAccessEnabled()) return publicViewer();
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;
@@ -147,11 +183,12 @@ export async function writeAuditEvent(
   category = "Administration",
 ) {
   const sql = getDatabase();
+  const actorId = isPublicAccessViewer(viewer) ? null : viewer.id;
   await sql`
     insert into public.audit_events (
       organisation_id, actor_id, actor_name, category, action, detail
     ) values (
-      ${viewer.organisationId}, ${viewer.id}, ${viewer.fullName}, ${category}, ${action}, ${detail}
+      ${viewer.organisationId}, ${actorId}, ${viewer.fullName}, ${category}, ${action}, ${detail}
     )
   `;
 }
