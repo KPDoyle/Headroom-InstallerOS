@@ -1,52 +1,67 @@
 # Headroom Installer OS
 
-A connected operating system for MCS-certified renewable installers, combining site evidence, compliance, certificate preparation, customer handover, product verification and territory intelligence.
+Headroom Installer OS is a connected operating workspace for UK renewable-energy installers. It combines project delivery, installation evidence, MCS compliance, MID preparation, customer handover, product control and territory intelligence in one Headroom-branded application.
 
-## Live application
+## Live applications
 
-[Open Headroom Installer OS](https://headroom-installer-os.kevin-doyle296372.chatgpt.site)
+- Full workspace: https://headroom-installer-os.kevin-doyle296372.chatgpt.site
+- Public demonstration: https://headroom-installeros.vercel.app
 
-## Product areas
+The full workspace uses managed D1 and R2 bindings for saved records and files. The public Vercel demonstration automatically uses device-local fallback storage because Cloudflare bindings are not present there.
 
-- **Command Centre** — a single installation journey from site screening through customer handover.
-- **Sites & Projects** — portfolio, crew capacity and job-readiness visibility.
-- **SiteProof** — guided evidence capture and Technical Supervisor review gates.
-- **Compliance Hub** — accountable roles, qualifications, corrective actions and audit readiness.
-- **MID Preflight** — validates required installation data before authorised entry in the MCS Installations Database.
-- **Customer Passport** — branded certificates, warranties, guidance and service records.
-- **Product Guard** — product certification, serial checks and substitution control.
-- **Territory Intelligence** — postcode opportunity scoring and installer-density signals.
+## Functional modules
 
-## Brand system
+- **Sites & Projects** — create, search, filter and select connected installation records.
+- **SiteProof** — upload time-stamped photo/PDF evidence, track evidence gates and request Technical Supervisor review.
+- **Compliance Hub** — manage accountable roles, competency qualifications, expiry signals and corrective actions.
+- **MID Preflight** — validate the installation record, calculate readiness, copy or download the authorised-entry sheet and open official MID guidance.
+- **Customer Passport** — upload handover documents, export the passport record and prepare a customer email.
+- **Product Guard** — capture installed serials, export product evidence and open the live MCS Product Directory for authoritative checks.
+- **Territory Intelligence** — analyse postcodes, create/export campaigns, open map searches and access current MCS/ENA market resources.
 
-The interface follows the Headroom visual language: Sora typography, deep navy `#04142B`, gold `#F5B400`, compact uppercase labels and evidence-led status cards.
+Global navigation also includes project search (`Cmd/Ctrl + K`), notifications, saved-state status, workspace backup and an official integrations directory.
 
-## Technology
+## Official integrations
 
-- React 19
-- Next.js 16
-- Vinext/Vite
-- TypeScript
-- Tailwind CSS
-- Lucide icons
-- Cloudflare-compatible Worker output
-- Optional Drizzle/D1 scaffolding
+The application links to the MCS Product Directory, MCS Standards & Tools Library, MID installer guidance, MCS Data Dashboard, ENA DNO lookup and ENA Connect Direct. Credential-gated MID submission remains an authorised-installer action; Headroom prepares and validates the copy sheet without impersonating that submission.
 
-## Local development
+## Data and files
 
-Requires Node.js 22.13 or newer.
+- D1 stores the owner workspace state as a versionable JSON record.
+- R2 stores evidence and handover documents up to 10 MB each.
+- Workspace writes are scoped by the authenticated OpenAI user email when available.
+- The Sites access policy remains the primary authorisation boundary.
+- If hosted storage is unavailable, the browser clearly switches to `LOCAL` fallback mode.
+
+## Development
+
+Requirements: Node.js 22 or later, `flock`, `curl` and GNU `timeout`.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Run validation with:
+Useful checks:
 
 ```bash
+npm run lint
+npx tsc --noEmit
 npm test
+VERCEL=1 npm run build
 ```
 
-## Current status
+The normal `npm run build` creates and validates the Vinext/Cloudflare Worker artifact. Setting `VERCEL=1` creates a standard Next.js production build for Vercel.
 
-This repository contains the interactive product prototype. It uses realistic demonstration data. Production operation will require persistent storage, role-based authentication, document uploads and authorised MCS/MID integrations.
+## Project structure
+
+- `app/page.tsx` — Headroom interface and installer workflows
+- `app/api/workspace/route.ts` — durable workspace API
+- `app/api/files/route.ts` — evidence and document storage API
+- `db/schema.ts` and `drizzle/` — D1 schema and migration
+- `.openai/hosting.json` — Sites project and logical D1/R2 bindings
+- `scripts/` — bounded builds and artifact verification
+
+## Important scope
+
+Headroom Installer OS assists with workflow completeness and evidence preparation. It does not replace MCS certification, Technical Supervisor judgment, Certification Body assessment, DNO approval or authorised MID submission.
