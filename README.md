@@ -1,6 +1,6 @@
 # Headroom Installer OS
 
-Headroom Installer OS is a connected operating workspace for UK renewable-energy installers. It combines project delivery, installation evidence, MCS compliance, MID preparation, customer handover, product control and territory intelligence in one Headroom-branded application.
+Headroom Installer OS is a connected operating workspace for UK renewable-energy installers. It combines project delivery, installation evidence, MCS compliance, MID preparation, customer handover, product control, territory intelligence and full workspace administration in one Headroom-branded application.
 
 ## Live applications
 
@@ -18,6 +18,7 @@ The full workspace uses managed D1 and R2 bindings for saved records and files. 
 - **Customer Passport** — upload handover documents, export the passport record and prepare a customer email.
 - **Product Guard** — capture installed serials, export product evidence and open the live MCS Product Directory for authoritative checks.
 - **Territory Intelligence** — analyse postcodes, create/export campaigns, open map searches and access current MCS/ENA market resources.
+- **Administration Centre** — manage users, roles and account status; configure security policies and workflow automation; monitor integrations; maintain installer organisation details; export backups; and search or export the audit trail.
 
 Global navigation also includes project search (`Cmd/Ctrl + K`), notifications, saved-state status, workspace backup and an official integrations directory.
 
@@ -27,10 +28,10 @@ The application links to the MCS Product Directory, MCS Standards & Tools Librar
 
 ## Data and files
 
-- D1 stores the owner workspace state as a versionable JSON record.
+- D1 stores the shared organisation workspace state as a versionable JSON record and migrates the earlier owner record on first use.
 - R2 stores evidence and handover documents up to 10 MB each.
-- Workspace writes are scoped by the authenticated OpenAI user email when available.
-- The Sites access policy remains the primary authorisation boundary.
+- The Sites identity gate is the primary authorisation boundary. Registered in-app users can be suspended, while administration changes require an Administrator role.
+- Administration changes, access decisions, workflow controls and data operations are recorded in the searchable audit history.
 - If hosted storage is unavailable, the browser clearly switches to `LOCAL` fallback mode.
 
 ## Development

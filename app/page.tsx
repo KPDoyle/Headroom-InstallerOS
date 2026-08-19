@@ -11,8 +11,8 @@ import {
 } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
-type View = "overview" | "sites" | "siteproof" | "compliance" | "mid" | "passport" | "products" | "territory";
-type Dialog = "new-project" | "qualification" | "roles" | "serial" | "campaign" | "settings" | "notifications" | null;
+type View = "overview" | "sites" | "siteproof" | "compliance" | "mid" | "passport" | "products" | "territory" | "admin";
+type Dialog = "new-project" | "qualification" | "roles" | "serial" | "campaign" | "admin-user" | "workflow" | "integration" | "settings" | "notifications" | null;
 
 type Project = {
   id: string; ref: string; site: string; place: string; postcode: string; system: string;
@@ -23,6 +23,11 @@ type EvidenceRecord = { id: string; category: string; fileName: string; fileKey?
 type ProductRecord = { type: string; model: string; quantity: string; certification: string; status: string; serial?: string };
 type Qualification = { name: string; scope: string; qualification: string; expires: string };
 type PassportDocument = { name: string; status: string; fileName?: string; fileKey?: string };
+type AdminUser = { id: string; name: string; email: string; role: "Administrator" | "Technical Supervisor" | "Installer" | "Auditor" | "Office"; status: "Active" | "Invited" | "Suspended"; lastActive: string };
+type AuditEntry = { id: string; actor: string; action: string; detail: string; category: string; at: string };
+type WorkflowRule = { id: string; name: string; trigger: string; action: string; enabled: boolean };
+type IntegrationRecord = { id: string; name: string; category: string; detail: string; status: "Connected" | "Attention" | "Paused"; lastSync: string };
+type AdminSettings = { companyName: string; mcsNumber: string; certificationBody: string; officePostcode: string; retentionYears: string; requireMfa: boolean; nightlyBackup: boolean; customerPortal: boolean; evidenceQualityGate: boolean };
 type InstallerData = {
   projects: Project[];
   activeProjectId: string;
@@ -37,6 +42,11 @@ type InstallerData = {
   passportShared: Record<string, boolean>;
   campaigns: { postcode: string; segment: string; createdAt: string }[];
   notifications: { id: string; title: string; detail: string; read: boolean }[];
+  adminUsers: AdminUser[];
+  auditLog: AuditEntry[];
+  workflowRules: WorkflowRule[];
+  integrations: IntegrationRecord[];
+  adminSettings: AdminSettings;
 };
 
 const evidenceCategories = ["Array and roof overview", "Mounting system and fixings", "Cable routes and protection", "Inverter clearances", "Battery location and labels", "Roof weatherproofing", "Meter and isolator labels", "Commissioning readings"];
@@ -97,7 +107,44 @@ const defaultData: InstallerData = {
     { id: "n2", title: "Qualification due", detail: "Leah Khan’s Solar PV qualification is due within 60 days.", read: false },
     { id: "n3", title: "MID deadline", detail: "Register commissioned installations within the MCS submission window.", read: true },
   ],
+  adminUsers: [
+    { id: "u-kevin", name: "Kevin Doyle", email: "kevin.doyle@adarogroup.eu", role: "Administrator", status: "Active", lastActive: "Now" },
+    { id: "u-alex", name: "Alex Mercer", email: "alex.mercer@example.com", role: "Technical Supervisor", status: "Active", lastActive: "18 mins ago" },
+    { id: "u-leah", name: "Leah Khan", email: "leah.khan@example.com", role: "Installer", status: "Active", lastActive: "Yesterday" },
+    { id: "u-sophie", name: "Sophie Ward", email: "sophie.ward@example.com", role: "Office", status: "Invited", lastActive: "Invitation pending" },
+  ],
+  auditLog: [
+    { id: "a1", actor: "Kevin Doyle", action: "Workspace administration enabled", detail: "Organisation controls and audit history activated.", category: "Administration", at: "2026-08-19T11:42:00.000Z" },
+    { id: "a2", actor: "Alex Mercer", action: "Technical review requested", detail: "SES-0246 · Rosebank Farm", category: "Compliance", at: "2026-08-19T10:18:00.000Z" },
+    { id: "a3", actor: "Leah Khan", action: "Evidence uploaded", detail: "SES-0248 · Inverter clearances", category: "Evidence", at: "2026-08-19T09:32:00.000Z" },
+  ],
+  workflowRules: [
+    { id: "w1", name: "Technical review gate", trigger: "All required evidence captured", action: "Notify the assigned Technical Supervisor", enabled: true },
+    { id: "w2", name: "Qualification warning", trigger: "Qualification expires within 60 days", action: "Alert administrator and affected person", enabled: true },
+    { id: "w3", name: "MID deadline watch", trigger: "Project marked commissioned", action: "Create a registration deadline task", enabled: true },
+    { id: "w4", name: "Passport release", trigger: "Handover pack reaches 10/10", action: "Prepare customer invitation", enabled: false },
+  ],
+  integrations: [
+    { id: "i1", name: "MCS installer resources", category: "Certification", detail: "Product, standards and MID links", status: "Connected", lastSync: "Live links" },
+    { id: "i2", name: "ENA network services", category: "Grid", detail: "DNO lookup and Connect Direct", status: "Connected", lastSync: "Live links" },
+    { id: "i3", name: "Workspace document store", category: "Data", detail: "Project evidence and passport files", status: "Connected", lastSync: "Just now" },
+    { id: "i4", name: "Customer email", category: "Communications", detail: "Device email client hand-off", status: "Connected", lastSync: "On demand" },
+  ],
+  adminSettings: { companyName: "Stratford Energy Solutions", mcsNumber: "MCS-SES-024", certificationBody: "MCS Scheme · Scenario C", officePostcode: "SO21", retentionYears: "7", requireMfa: true, nightlyBackup: true, customerPortal: true, evidenceQualityGate: true },
 };
+
+function normaliseData(value?: Partial<InstallerData> | null): InstallerData {
+  if (!value) return defaultData;
+  return {
+    ...defaultData,
+    ...value,
+    adminUsers: Array.isArray(value.adminUsers) ? value.adminUsers : defaultData.adminUsers,
+    auditLog: Array.isArray(value.auditLog) ? value.auditLog : defaultData.auditLog,
+    workflowRules: Array.isArray(value.workflowRules) ? value.workflowRules : defaultData.workflowRules,
+    integrations: Array.isArray(value.integrations) ? value.integrations : defaultData.integrations,
+    adminSettings: { ...defaultData.adminSettings, ...(value.adminSettings ?? {}) },
+  };
+}
 
 type OSContextValue = {
   data: InstallerData;
@@ -109,6 +156,7 @@ type OSContextValue = {
   dialog: Dialog;
   openDialog: (dialog: Dialog) => void;
   uploadFile: (file: File, purpose: string) => Promise<{ fileName: string; fileKey?: string }>;
+  recordAudit: (action: string, detail: string, category?: string) => void;
 };
 
 const OSContext = createContext<OSContextValue | null>(null);
@@ -138,13 +186,13 @@ function InstallerProvider({ children }: { children: React.ReactNode }) {
       if (!response.ok) throw new Error("Cloud workspace unavailable");
       const payload = await response.json() as { state?: InstallerData | null };
       if (cancelled) return;
-      if (payload.state) setData(payload.state);
+      if (payload.state) setData(normaliseData(payload.state));
       setStorageMode("cloud");
       setLoaded(true);
     }).catch(() => {
       if (cancelled) return;
       const local = window.localStorage.getItem("headroom-installer-os");
-      if (local) { try { setData(JSON.parse(local) as InstallerData); } catch { /* keep demo data */ } }
+      if (local) { try { setData(normaliseData(JSON.parse(local) as Partial<InstallerData>)); } catch { /* keep demo data */ } }
       setStorageMode("local");
       setLoaded(true);
     });
@@ -175,13 +223,14 @@ function InstallerProvider({ children }: { children: React.ReactNode }) {
     }
     return { fileName: file.name };
   };
+  const recordAudit = (action: string, detail: string, category = "Administration") => setData((current) => ({ ...current, auditLog: [{ id: crypto.randomUUID(), actor: "Kevin Doyle", action, detail, category, at: new Date().toISOString() }, ...current.auditLog].slice(0, 250) }));
 
-  const value: OSContextValue = { data, setData, activeProject, storageMode, toast, showToast: setToast, dialog, openDialog: setDialog, uploadFile };
+  const value: OSContextValue = { data, setData, activeProject, storageMode, toast, showToast: setToast, dialog, openDialog: setDialog, uploadFile, recordAudit };
   return <OSContext.Provider value={value}>{children}<DialogLayer />{toast && <div className="toast" role="status"><CheckCircle2 size={16}/>{toast}</div>}</OSContext.Provider>;
 }
 
 function DialogLayer() {
-  const { dialog, openDialog, data, setData, activeProject, storageMode, showToast } = useOS();
+  const { dialog, openDialog, data, setData, activeProject, storageMode, showToast, recordAudit } = useOS();
   if (!dialog) return null;
   const close = () => openDialog(null);
   const addProject = (event: React.FormEvent<HTMLFormElement>) => {
@@ -218,6 +267,23 @@ function DialogLayer() {
     downloadText(`${postcode.toLowerCase()}-campaign.csv`, `postcode,segment,status,created\n${postcode},${segment},Draft,${new Date().toISOString()}\n`, "text/csv");
     close(); showToast(`${postcode} campaign created and exported.`);
   };
+  const addAdminUser = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const user: AdminUser = { id: crypto.randomUUID(), name: String(form.get("name") ?? ""), email: String(form.get("email") ?? "").trim().toLowerCase(), role: String(form.get("role") ?? "Installer") as AdminUser["role"], status: "Invited", lastActive: "Invitation pending" };
+    setData((current) => ({ ...current, adminUsers: [...current.adminUsers, user] }));
+    recordAudit("User invited", `${user.name} · ${user.role}`, "Access"); close(); showToast(`Invitation prepared for ${user.email}.`);
+    window.location.href = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent("Headroom Installer OS invitation")}&body=${encodeURIComponent(`Hello ${user.name},\n\nYou have been invited to Headroom Installer OS as ${user.role}.\n\nRegards,\n${data.adminSettings.companyName}`)}`;
+  };
+  const addWorkflow = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const rule: WorkflowRule = { id: crypto.randomUUID(), name: String(form.get("name") ?? ""), trigger: String(form.get("trigger") ?? ""), action: String(form.get("action") ?? ""), enabled: true };
+    setData((current) => ({ ...current, workflowRules: [...current.workflowRules, rule] })); recordAudit("Automation created", rule.name, "Workflow"); close(); showToast(`${rule.name} is now active.`);
+  };
+  const addIntegration = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const integration: IntegrationRecord = { id: crypto.randomUUID(), name: String(form.get("name") ?? ""), category: String(form.get("category") ?? "Operations"), detail: String(form.get("detail") ?? "Custom connection"), status: "Connected", lastSync: "Just now" };
+    setData((current) => ({ ...current, integrations: [...current.integrations, integration] })); recordAudit("Integration added", integration.name, "Integration"); close(); showToast(`${integration.name} connected.`);
+  };
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) close(); }}>
     <section className="dialog-card" role="dialog" aria-modal="true" aria-label="Installer OS action">
@@ -227,6 +293,9 @@ function DialogLayer() {
       {dialog === "roles" && <><span className="eyebrow">SCHEME OWNERSHIP</span><h2>Manage accountable roles</h2><form className="dialog-form" onSubmit={saveRoles}>{data.roles.map((role, index) => <label key={role.role}>{role.role}<input name={`role-${index}`} defaultValue={role.name} required/><small>{role.detail}</small></label>)}<button className="dialog-submit"><Save size={16}/>Save roles</button></form></>}
       {dialog === "serial" && <><span className="eyebrow">PRODUCT GUARD</span><h2>Capture installed serial</h2><p>{activeProject.ref} · {activeProject.site}</p><form className="dialog-form" onSubmit={saveSerial}><label>Product<select name="product">{(data.products[activeProject.id] ?? []).map((product, index) => <option key={`${product.type}-${index}`} value={index}>{product.type} · {product.model}</option>)}</select></label><label>Serial number<input name="serial" required autoFocus placeholder="Scan or type serial"/></label><button className="dialog-submit"><BadgeCheck size={16}/>Verify and lock</button></form></>}
       {dialog === "campaign" && <><span className="eyebrow">TERRITORY INTELLIGENCE</span><h2>Create a postcode campaign</h2><form className="dialog-form" onSubmit={createCampaign}><label>Target postcode<input name="postcode" defaultValue="SO21" required/></label><label>Technology<select name="segment"><option>Solar + battery</option><option>Solar PV</option><option>Heat pumps</option><option>Battery storage</option></select></label><button className="dialog-submit"><Download size={16}/>Create and export campaign</button></form></>}
+      {dialog === "admin-user" && <><span className="eyebrow">ACCESS ADMINISTRATION</span><h2>Invite a workspace user</h2><p>Create their account record, assign least-privilege access and prepare the invitation email.</p><form className="dialog-form" onSubmit={addAdminUser}><label>Full name<input name="name" required autoFocus/></label><label>Email address<input name="email" type="email" required/></label><label>Workspace role<select name="role"><option>Installer</option><option>Technical Supervisor</option><option>Office</option><option>Auditor</option><option>Administrator</option></select></label><button className="dialog-submit"><Users size={16}/>Create and invite user</button></form></>}
+      {dialog === "workflow" && <><span className="eyebrow">WORKFLOW AUTOMATION</span><h2>Create an administration rule</h2><p>Rules are saved with the organisation workspace and can be paused at any time.</p><form className="dialog-form" onSubmit={addWorkflow}><label>Rule name<input name="name" required autoFocus placeholder="e.g. Failed evidence escalation"/></label><label>When this happens<input name="trigger" required placeholder="Evidence is rejected twice"/></label><label>Then do this<input name="action" required placeholder="Notify administrator and Technical Supervisor"/></label><button className="dialog-submit"><Sparkles size={16}/>Activate workflow</button></form></>}
+      {dialog === "integration" && <><span className="eyebrow">INTEGRATION ADMINISTRATION</span><h2>Add a connection</h2><form className="dialog-form" onSubmit={addIntegration}><label>Integration name<input name="name" required autoFocus/></label><label>Category<select name="category"><option>Certification</option><option>Grid</option><option>Communications</option><option>Data</option><option>Operations</option></select></label><label>Connection purpose<input name="detail" required placeholder="What this connection supports"/></label><button className="dialog-submit"><ExternalLink size={16}/>Add connection</button></form></>}
       {dialog === "notifications" && <><span className="eyebrow">WORKSPACE ALERTS</span><h2>Notifications</h2><div className="notification-list">{data.notifications.map((item) => <button key={item.id} className={item.read ? "read" : ""} onClick={() => setData((current) => ({ ...current, notifications: current.notifications.map((note) => note.id === item.id ? { ...note, read: true } : note) }))}><span>{item.read ? <CheckCircle2 size={16}/> : <Bell size={16}/>}</span><span><strong>{item.title}</strong><small>{item.detail}</small></span></button>)}</div></>}
       {dialog === "settings" && <><span className="eyebrow">SETTINGS & INTEGRATIONS</span><h2>Connected workspace</h2><div className={`storage-status ${storageMode}`}><ShieldCheck size={18}/><span><strong>{storageMode === "cloud" ? "Saved workspace" : storageMode === "local" ? "Device fallback mode" : "Connecting"}</strong><small>{storageMode === "cloud" ? "Records and upload metadata persist securely with this Site." : "The hosted data service is unavailable here; changes remain on this device."}</small></span></div><div className="resource-list">{officialResources.map((resource) => <a key={resource.href} href={resource.href} target="_blank" rel="noreferrer"><span><strong>{resource.label}</strong><small>{resource.detail}</small></span><ExternalLink size={15}/></a>)}</div><button className="dialog-secondary" onClick={() => { downloadText("headroom-installer-os-backup.json", JSON.stringify(data, null, 2)); showToast("Workspace backup downloaded."); }}><Download size={15}/>Download workspace backup</button></>}
     </section>
@@ -242,6 +311,7 @@ const navItems: Array<{ id: View; label: string; icon: typeof LayoutDashboard }>
   { id: "passport", label: "Customer passport", icon: ContactRound },
   { id: "products", label: "Product Guard", icon: BadgeCheck },
   { id: "territory", label: "Territory intelligence", icon: Map },
+  { id: "admin", label: "Administration", icon: Settings },
 ];
 
 const modules = [
@@ -579,6 +649,76 @@ function TerritoryView() {
   </div>;
 }
 
+function AdminView() {
+  const { data, setData, openDialog, recordAudit, showToast, storageMode } = useOS();
+  const [auditQuery, setAuditQuery] = useState("");
+  const [auditCategory, setAuditCategory] = useState("All activity");
+  const activeUsers = data.adminUsers.filter((user) => user.status === "Active").length;
+  const healthyIntegrations = data.integrations.filter((integration) => integration.status === "Connected").length;
+  const visibleAudit = data.auditLog.filter((entry) => (auditCategory === "All activity" || entry.category === auditCategory) && `${entry.actor} ${entry.action} ${entry.detail}`.toLowerCase().includes(auditQuery.toLowerCase()));
+  const roles: AdminUser["role"][] = ["Administrator", "Technical Supervisor", "Installer", "Auditor", "Office"];
+  const toggleSetting = (key: "requireMfa" | "nightlyBackup" | "customerPortal" | "evidenceQualityGate", label: string) => {
+    const next = !data.adminSettings[key]; setData((current) => ({ ...current, adminSettings: { ...current.adminSettings, [key]: next } })); recordAudit(`${label} ${next ? "enabled" : "disabled"}`, "Organisation policy changed", "Policy"); showToast(`${label} ${next ? "enabled" : "disabled"}.`);
+  };
+  const changeUser = (id: string, patch: Partial<AdminUser>, action: string) => {
+    const user = data.adminUsers.find((item) => item.id === id); setData((current) => ({ ...current, adminUsers: current.adminUsers.map((item) => item.id === id ? { ...item, ...patch } : item) })); recordAudit(action, user?.name ?? "Workspace user", "Access"); showToast(`${user?.name ?? "User"} updated.`);
+  };
+  const saveOrganisation = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const settings = { ...data.adminSettings, companyName: String(form.get("companyName") ?? ""), mcsNumber: String(form.get("mcsNumber") ?? ""), certificationBody: String(form.get("certificationBody") ?? ""), officePostcode: String(form.get("officePostcode") ?? "").toUpperCase(), retentionYears: String(form.get("retentionYears") ?? "7") };
+    setData((current) => ({ ...current, adminSettings: settings })); recordAudit("Organisation settings updated", `${settings.companyName} · ${settings.mcsNumber}`, "Policy"); showToast("Organisation profile and retention policy saved.");
+  };
+  const exportAudit = () => {
+    const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+    const csv = ["timestamp,category,actor,action,detail", ...data.auditLog.map((entry) => [entry.at, entry.category, entry.actor, entry.action, entry.detail].map(quote).join(","))].join("\n"); downloadText("headroom-installer-os-audit-log.csv", csv, "text/csv"); recordAudit("Audit log exported", `${data.auditLog.length} entries`, "Data"); showToast("Audit history exported.");
+  };
+  return <div className="module-page admin-page">
+    <ModuleHeader eyebrow="ADMINISTRATION" title="Control the entire installer workspace" description="Manage people, permissions, policies, automation, integrations, data and a complete operational audit trail." icon={Settings} action="Invite user" onAction={() => openDialog("admin-user")} />
+    <MetricStrip items={[{label:"ACTIVE USERS",value:String(activeUsers),note:`${data.adminUsers.length} total accounts`,tone:"green-text"},{label:"AUTOMATIONS",value:String(data.workflowRules.filter((rule) => rule.enabled).length),note:`${data.workflowRules.length} configured rules`},{label:"INTEGRATIONS",value:`${healthyIntegrations}/${data.integrations.length}`,note:"Connections healthy",tone:"green-text"},{label:"AUDIT EVENTS",value:String(data.auditLog.length),note:"Latest 250 retained"}]} />
+
+    <section className="admin-grid">
+      <article className="workspace-card admin-users-card">
+        <div className="table-toolbar"><div><span className="eyebrow">USERS & ACCESS</span><h2>Workspace team</h2></div><div className="toolbar-actions"><button onClick={() => { downloadText("headroom-users.csv", ["name,email,role,status,last_active", ...data.adminUsers.map((user) => [user.name,user.email,user.role,user.status,user.lastActive].join(","))].join("\n"), "text/csv"); showToast("User register exported."); }}><Download size={15}/>Export</button><button onClick={() => openDialog("admin-user")}><Plus size={15}/>Invite user</button></div></div>
+        <div className="admin-user-list"><div className="admin-user-row admin-user-head"><span>User</span><span>Role</span><span>Status</span><span>Last active</span><span>Controls</span></div>{data.adminUsers.map((user) => <div className="admin-user-row" key={user.id}><span className="admin-person"><i className="avatar">{user.name.split(" ").map((part) => part[0]).join("").slice(0,2)}</i><span><strong>{user.name}</strong><small>{user.email}</small></span></span><span><select value={user.role} onChange={(event) => changeUser(user.id, { role: event.target.value as AdminUser["role"] }, `Role changed to ${event.target.value}`)} aria-label={`Role for ${user.name}`}>{roles.map((role) => <option key={role}>{role}</option>)}</select></span><span><i className={`admin-state ${user.status.toLowerCase()}`}>{user.status}</i></span><span>{user.lastActive}</span><span className="admin-row-actions">{user.status === "Invited" && <button onClick={() => { window.location.href = `mailto:${user.email}?subject=${encodeURIComponent("Headroom Installer OS invitation")}`; recordAudit("Invitation resent", user.name, "Access"); }} aria-label={`Resend invitation to ${user.name}`}><Mail size={14}/></button>}<button onClick={() => changeUser(user.id, { status: user.status === "Suspended" ? "Active" : "Suspended", lastActive: user.status === "Suspended" ? "Reactivated now" : user.lastActive }, user.status === "Suspended" ? "User reactivated" : "User suspended")} aria-label={user.status === "Suspended" ? `Reactivate ${user.name}` : `Suspend ${user.name}`}><ShieldCheck size={14}/></button></span></div>)}</div>
+      </article>
+
+      <aside className="workspace-card admin-policy-card">
+        <div className="table-toolbar"><div><span className="eyebrow">SECURITY & GOVERNANCE</span><h2>Workspace policies</h2></div><span className={`sync-chip ${storageMode}`}>{storageMode === "cloud" ? "CLOUD" : "LOCAL"}</span></div>
+        <div className="policy-list">{[
+          ["requireMfa","Require secure sign-in","Apply the hosted identity gate to workspace access"],
+          ["nightlyBackup","Nightly workspace backup","Maintain a recoverable administration snapshot"],
+          ["customerPortal","Customer passport sharing","Allow project teams to prepare customer access"],
+          ["evidenceQualityGate","Evidence quality gate","Block TS review until required evidence is present"],
+        ].map(([key,label,detail]) => { const enabled = data.adminSettings[key as keyof AdminSettings] as boolean; return <button key={key} className="policy-row" onClick={() => toggleSetting(key as "requireMfa" | "nightlyBackup" | "customerPortal" | "evidenceQualityGate", label)} role="switch" aria-checked={enabled}><span><strong>{label}</strong><small>{detail}</small></span><i className={enabled ? "on" : ""}><b/></i></button>; })}</div>
+      </aside>
+    </section>
+
+    <section className="admin-grid balanced">
+      <article className="workspace-card">
+        <div className="table-toolbar"><div><span className="eyebrow">WORKFLOW AUTOMATION</span><h2>Rules and controls</h2></div><button className="quiet-button" onClick={() => openDialog("workflow")}><Plus size={15}/>New rule</button></div>
+        <div className="workflow-list">{data.workflowRules.map((rule) => <div key={rule.id}><button className={`rule-toggle ${rule.enabled ? "on" : ""}`} onClick={() => { setData((current) => ({ ...current, workflowRules: current.workflowRules.map((item) => item.id === rule.id ? { ...item, enabled: !item.enabled } : item) })); recordAudit(`Automation ${rule.enabled ? "paused" : "enabled"}`, rule.name, "Workflow"); }} role="switch" aria-checked={rule.enabled}><i/></button><span><strong>{rule.name}</strong><small><b>When</b> {rule.trigger}</small><small><b>Then</b> {rule.action}</small></span><em>{rule.enabled ? "Active" : "Paused"}</em></div>)}</div>
+      </article>
+      <article className="workspace-card">
+        <div className="table-toolbar"><div><span className="eyebrow">INTEGRATIONS</span><h2>Connection health</h2></div><button className="quiet-button" onClick={() => openDialog("integration")}><Plus size={15}/>Add</button></div>
+        <div className="integration-list">{data.integrations.map((integration) => <div key={integration.id}><span className={`integration-icon ${integration.status.toLowerCase()}`}><ExternalLink size={16}/></span><span><strong>{integration.name}</strong><small>{integration.category} · {integration.detail}</small></span><span><i className={`dot ${integration.status === "Connected" ? "green" : integration.status === "Attention" ? "gold" : "blue"}`}/>{integration.status}<small>{integration.lastSync}</small></span><button onClick={() => { const next = integration.status === "Paused" ? "Connected" : "Paused"; setData((current) => ({ ...current, integrations: current.integrations.map((item) => item.id === integration.id ? { ...item, status: next, lastSync: next === "Connected" ? "Tested just now" : item.lastSync } : item) })); recordAudit(`Integration ${next === "Connected" ? "tested and connected" : "paused"}`, integration.name, "Integration"); showToast(`${integration.name} ${next === "Connected" ? "connection verified" : "paused"}.`); }} aria-label={`${integration.status === "Paused" ? "Connect" : "Pause"} ${integration.name}`}><RefreshCw size={14}/></button></div>)}</div>
+      </article>
+    </section>
+
+    <section className="admin-grid balanced">
+      <article className="workspace-card organisation-card">
+        <div className="table-toolbar"><div><span className="eyebrow">ORGANISATION</span><h2>Installer account details</h2></div></div>
+        <form className="admin-form" onSubmit={saveOrganisation}><label>Trading name<input name="companyName" defaultValue={data.adminSettings.companyName} required/></label><label>MCS installer number<input name="mcsNumber" defaultValue={data.adminSettings.mcsNumber} required/></label><label>Certification route<input name="certificationBody" defaultValue={data.adminSettings.certificationBody} required/></label><div className="admin-form-pair"><label>Office postcode<input name="officePostcode" defaultValue={data.adminSettings.officePostcode} required/></label><label>Record retention<select name="retentionYears" defaultValue={data.adminSettings.retentionYears}><option value="3">3 years</option><option value="5">5 years</option><option value="7">7 years</option><option value="10">10 years</option></select></label></div><button><Save size={15}/>Save organisation settings</button></form>
+        <div className="data-actions"><button onClick={() => { downloadText("headroom-installer-os-backup.json", JSON.stringify(data, null, 2)); recordAudit("Workspace backup downloaded", "Complete organisation data", "Data"); showToast("Complete workspace backup downloaded."); }}><Download size={15}/><span><strong>Export complete workspace</strong><small>Projects, settings and administration records</small></span></button><button onClick={() => { recordAudit("Backup verification completed", `${data.projects.length} projects · ${data.adminUsers.length} users`, "Data"); showToast("Backup verification completed successfully."); }}><CheckCircle2 size={15}/><span><strong>Run data health check</strong><small>Validate core workspace records</small></span></button></div>
+      </article>
+      <article className="workspace-card audit-card">
+        <div className="table-toolbar"><div><span className="eyebrow">AUDIT HISTORY</span><h2>Administrative activity</h2></div><button className="quiet-button" onClick={exportAudit}><Download size={15}/>Export log</button></div>
+        <div className="audit-filters"><label><Search size={14}/><input value={auditQuery} onChange={(event) => setAuditQuery(event.target.value)} placeholder="Search activity"/></label><select value={auditCategory} onChange={(event) => setAuditCategory(event.target.value)}><option>All activity</option>{Array.from(new Set(data.auditLog.map((entry) => entry.category))).map((category) => <option key={category}>{category}</option>)}</select></div>
+        <div className="audit-list">{visibleAudit.slice(0,8).map((entry) => <div key={entry.id}><span className="audit-dot"/><span><strong>{entry.action}</strong><small>{entry.detail}</small></span><span><strong>{entry.actor}</strong><small>{new Date(entry.at).toLocaleString("en-GB", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })} · {entry.category}</small></span></div>)}{visibleAudit.length === 0 && <div className="empty-state"><Search size={20}/><strong>No matching activity</strong><span>Change the search or category filter.</span></div>}</div>
+      </article>
+    </section>
+  </div>;
+}
+
 function WorkspaceView({ view, onOpen }: { view: View; onOpen: (id: View) => void }) {
   if (view === "sites") return <SitesView onOpen={onOpen}/>;
   if (view === "siteproof") return <SiteProofView/>;
@@ -587,6 +727,7 @@ function WorkspaceView({ view, onOpen }: { view: View; onOpen: (id: View) => voi
   if (view === "passport") return <PassportView/>;
   if (view === "products") return <ProductsView/>;
   if (view === "territory") return <TerritoryView/>;
+  if (view === "admin") return <AdminView/>;
   return <Overview onOpen={onOpen}/>;
 }
 
@@ -599,12 +740,13 @@ function InstallerApp() {
   const openView = (view: View) => { setActive(view); setMenuOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); searchRef.current?.focus(); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   const runSearch = () => { const match = data.projects.find((project) => `${project.ref} ${project.site} ${project.place} ${project.postcode}`.toLowerCase().includes(globalSearch.toLowerCase())); if (match) { setData((current) => ({ ...current, activeProjectId: match.id })); openView("siteproof"); showToast(`${match.ref} selected.`); } else { openView("sites"); showToast("No exact project match — showing the full pipeline."); } };
+  const currentAdmin = data.adminUsers.find((user) => user.role === "Administrator") ?? data.adminUsers[0];
 
   return (
     <main className="app-shell">
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
         <div className="sidebar-top"><Brand /><button className="mobile-close" onClick={() => setMenuOpen(false)} aria-label="Close menu"><X size={19} /></button></div>
-        <div className="workspace-label"><span>WORKSPACE</span><strong>Stratford Energy Solutions</strong></div>
+        <div className="workspace-label"><span>WORKSPACE</span><strong>{data.adminSettings.companyName}</strong></div>
         <nav className="sidebar-nav" aria-label="Product navigation">
           {navItems.map((item) => { const Icon = item.icon; return (
             <button key={item.id} className={active === item.id ? "active" : ""} onClick={() => openView(item.id)}>
@@ -613,9 +755,9 @@ function InstallerApp() {
           ); })}
         </nav>
         <div className="sidebar-footer">
-          <div className="scheme-card"><div><ShieldCheck size={17} /><span>MCS Scheme</span></div><strong>Scenario C</strong><small>Audit readiness 92%</small><div className="thin-progress"><span style={{ width: "92%" }} /></div></div>
-          <button className="settings-button" onClick={() => openDialog("settings")}><Settings size={17} /> Settings & integrations</button>
-          <div className="user-row"><span className="avatar">KD</span><span><strong>Kevin Doyle</strong><small>Licensee</small></span><CircleUserRound size={18} /></div>
+          <div className="scheme-card"><div><ShieldCheck size={17} /><span>MCS Scheme</span></div><strong>{data.adminSettings.mcsNumber}</strong><small>Audit readiness 92%</small><div className="thin-progress"><span style={{ width: "92%" }} /></div></div>
+          <button className="settings-button" onClick={() => openView("admin")}><Settings size={17} /> Administration centre</button>
+          <div className="user-row"><span className="avatar">{currentAdmin?.name.split(" ").map((part) => part[0]).join("").slice(0,2) ?? "KD"}</span><span><strong>{currentAdmin?.name ?? "Kevin Doyle"}</strong><small>{currentAdmin?.role ?? "Administrator"}</small></span><CircleUserRound size={18} /></div>
         </div>
       </aside>
       {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
