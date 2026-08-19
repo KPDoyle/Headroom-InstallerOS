@@ -12,6 +12,17 @@ command -v timeout || {
   exit 69
 }
 
+if [[ "${VERCEL:-}" == "1" ]]; then
+  next="${SITES_PROJECT_ROOT}/node_modules/.bin/next"
+  if [[ ! -x "${next}" ]]; then
+    echo "next is unavailable. Install dependencies before building." >&2
+    exit 69
+  fi
+
+  echo "Running Next.js build for Vercel..."
+  exec "${next}" build
+fi
+
 vinext="${SITES_PROJECT_ROOT}/node_modules/.bin/vinext"
 if [[ ! -x "${vinext}" ]]; then
   echo "vinext is unavailable. Run npm run install:ci and wait for it to finish before building." >&2
