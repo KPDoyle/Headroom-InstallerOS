@@ -17,14 +17,14 @@ The full workspace uses managed D1 and R2 bindings for saved records and files. 
 - **MID Preflight** — validate the installation record, calculate readiness, copy or download the authorised-entry sheet and open official MID guidance.
 - **Customer Passport** — upload handover documents, export the passport record and prepare a customer email.
 - **Product Guard** — capture installed serials, export product evidence and open the live MCS Product Directory for authoritative checks.
-- **Territory Intelligence** — analyse postcodes, create/export campaigns, open map searches and access current MCS/ENA market resources.
+- **Territory Intelligence** — validate complete UK postcodes through Postcodes.io/ONSPD, retrieve geographic and nearby-area data, calculate a transparent workspace-based Headroom score, save and compare analyses, export CSV evidence, create campaign briefs, open map searches and access current MCS/ENA market resources. The module deliberately avoids presenting invented installer counts or adoption figures as live data.
 - **Administration Centre** — manage users, roles and account status; configure security policies and workflow automation; monitor integrations; maintain installer organisation details; export backups; and search or export the audit trail.
 
 Global navigation also includes project search (`Cmd/Ctrl + K`), notifications, saved-state status, workspace backup and an official integrations directory.
 
 ## Official integrations
 
-The application links to the MCS Product Directory, MCS Standards & Tools Library, MID installer guidance, MCS Data Dashboard, ENA DNO lookup and ENA Connect Direct. Credential-gated MID submission remains an authorised-installer action; Headroom prepares and validates the copy sheet without impersonating that submission.
+The application links to the MCS Product Directory, MCS Standards & Tools Library, MID installer guidance, MCS Data Dashboard, ENA DNO lookup and ENA Connect Direct. Territory geography is retrieved from the free Postcodes.io API, backed by the ONS Postcode Directory. Credential-gated MID submission remains an authorised-installer action; Headroom prepares and validates the copy sheet without impersonating that submission.
 
 ## Data and files
 

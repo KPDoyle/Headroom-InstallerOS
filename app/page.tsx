@@ -2,7 +2,7 @@
 
 import {
   ArrowRight, BadgeCheck, Bell, BookOpenCheck, CalendarDays,
-  Camera, ChartNoAxesCombined, Check, CheckCircle2, ChevronDown, ChevronRight,
+  Camera, ChartNoAxesCombined, Check, CheckCircle2, ChevronRight,
   CircleAlert, CircleUserRound, ClipboardCheck, ContactRound, Copy, Download,
   ExternalLink, FileCheck2, FileText, FileUp, Filter, Gauge, GraduationCap, HelpCircle, LayoutDashboard,
   Mail, Map, MapPin, MapPinned, Menu, MessageSquare, PackageCheck, Plus,
@@ -28,6 +28,7 @@ type AuditEntry = { id: string; actor: string; action: string; detail: string; c
 type WorkflowRule = { id: string; name: string; trigger: string; action: string; enabled: boolean };
 type IntegrationRecord = { id: string; name: string; category: string; detail: string; status: "Connected" | "Attention" | "Paused"; lastSync: string };
 type AdminSettings = { companyName: string; mcsNumber: string; certificationBody: string; officePostcode: string; retentionYears: string; requireMfa: boolean; nightlyBackup: boolean; customerPortal: boolean; evidenceQualityGate: boolean };
+type TerritoryAnalysis = { postcode: string; outcode: string; country: string; region: string; adminDistrict: string; ward: string; parliamentaryConstituency: string; latitude: number | null; longitude: number | null; quality: number; score: number; segment: string; signals: Array<{ label: string; value: number; note: string }>; nearest: Array<{ postcode: string; outcode: string; district: string | null; latitude: number | null; longitude: number | null }>; source: string; checkedAt: string };
 type InstallerData = {
   projects: Project[];
   activeProjectId: string;
@@ -47,6 +48,7 @@ type InstallerData = {
   workflowRules: WorkflowRule[];
   integrations: IntegrationRecord[];
   adminSettings: AdminSettings;
+  territoryAnalyses: TerritoryAnalysis[];
 };
 
 const evidenceCategories = ["Array and roof overview", "Mounting system and fixings", "Cable routes and protection", "Inverter clearances", "Battery location and labels", "Roof weatherproofing", "Meter and isolator labels", "Commissioning readings"];
@@ -131,6 +133,7 @@ const defaultData: InstallerData = {
     { id: "i4", name: "Customer email", category: "Communications", detail: "Device email client hand-off", status: "Connected", lastSync: "On demand" },
   ],
   adminSettings: { companyName: "Stratford Energy Solutions", mcsNumber: "MCS-SES-024", certificationBody: "MCS Scheme · Scenario C", officePostcode: "SO21", retentionYears: "7", requireMfa: true, nightlyBackup: true, customerPortal: true, evidenceQualityGate: true },
+  territoryAnalyses: [],
 };
 
 function normaliseData(value?: Partial<InstallerData> | null): InstallerData {
@@ -143,6 +146,7 @@ function normaliseData(value?: Partial<InstallerData> | null): InstallerData {
     workflowRules: Array.isArray(value.workflowRules) ? value.workflowRules : defaultData.workflowRules,
     integrations: Array.isArray(value.integrations) ? value.integrations : defaultData.integrations,
     adminSettings: { ...defaultData.adminSettings, ...(value.adminSettings ?? {}) },
+    territoryAnalyses: Array.isArray(value.territoryAnalyses) ? value.territoryAnalyses : defaultData.territoryAnalyses,
   };
 }
 
@@ -262,10 +266,10 @@ function DialogLayer() {
     close(); showToast("Installed serial captured and locked to the project.");
   };
   const createCampaign = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); const form = new FormData(event.currentTarget); const postcode = String(form.get("postcode") ?? "SO21").toUpperCase(); const segment = String(form.get("segment") ?? "Solar + battery");
+    event.preventDefault(); const form = new FormData(event.currentTarget); const postcode = String(form.get("postcode") ?? data.territoryAnalyses[0]?.postcode ?? "SO21 1BT").toUpperCase(); const segment = String(form.get("segment") ?? data.territoryAnalyses[0]?.segment ?? "Solar + battery");
     setData((current) => ({ ...current, campaigns: [{ postcode, segment, createdAt: new Date().toISOString() }, ...current.campaigns] }));
     downloadText(`${postcode.toLowerCase()}-campaign.csv`, `postcode,segment,status,created\n${postcode},${segment},Draft,${new Date().toISOString()}\n`, "text/csv");
-    close(); showToast(`${postcode} campaign created and exported.`);
+    recordAudit("Territory campaign created", `${postcode} · ${segment}`, "Territory"); close(); showToast(`${postcode} campaign created and exported.`);
   };
   const addAdminUser = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -292,7 +296,7 @@ function DialogLayer() {
       {dialog === "qualification" && <><span className="eyebrow">COMPETENCY REGISTER</span><h2>Add a qualification</h2><form className="dialog-form" onSubmit={addQualification}><label>Person<input name="name" required/></label><label>Technology scope<input name="scope" required placeholder="Solar PV · EESS"/></label><label>Qualification<input name="qualification" required/></label><label>Expiry date<input name="expires" type="date" required/></label><button className="dialog-submit"><Save size={16}/>Save qualification</button></form></>}
       {dialog === "roles" && <><span className="eyebrow">SCHEME OWNERSHIP</span><h2>Manage accountable roles</h2><form className="dialog-form" onSubmit={saveRoles}>{data.roles.map((role, index) => <label key={role.role}>{role.role}<input name={`role-${index}`} defaultValue={role.name} required/><small>{role.detail}</small></label>)}<button className="dialog-submit"><Save size={16}/>Save roles</button></form></>}
       {dialog === "serial" && <><span className="eyebrow">PRODUCT GUARD</span><h2>Capture installed serial</h2><p>{activeProject.ref} · {activeProject.site}</p><form className="dialog-form" onSubmit={saveSerial}><label>Product<select name="product">{(data.products[activeProject.id] ?? []).map((product, index) => <option key={`${product.type}-${index}`} value={index}>{product.type} · {product.model}</option>)}</select></label><label>Serial number<input name="serial" required autoFocus placeholder="Scan or type serial"/></label><button className="dialog-submit"><BadgeCheck size={16}/>Verify and lock</button></form></>}
-      {dialog === "campaign" && <><span className="eyebrow">TERRITORY INTELLIGENCE</span><h2>Create a postcode campaign</h2><form className="dialog-form" onSubmit={createCampaign}><label>Target postcode<input name="postcode" defaultValue="SO21" required/></label><label>Technology<select name="segment"><option>Solar + battery</option><option>Solar PV</option><option>Heat pumps</option><option>Battery storage</option></select></label><button className="dialog-submit"><Download size={16}/>Create and export campaign</button></form></>}
+      {dialog === "campaign" && <><span className="eyebrow">TERRITORY INTELLIGENCE</span><h2>Create a postcode campaign</h2><p>Use the latest verified territory or change the target before exporting the campaign brief.</p><form className="dialog-form" onSubmit={createCampaign}><label>Target postcode<input name="postcode" defaultValue={data.territoryAnalyses[0]?.postcode ?? "SO21 1BT"} required/></label><label>Technology<select name="segment" defaultValue={data.territoryAnalyses[0]?.segment ?? "Solar + battery"}><option>Solar + battery</option><option>Solar PV</option><option>Heat pumps</option><option>Battery storage</option></select></label><button className="dialog-submit"><Download size={16}/>Create and export campaign</button></form></>}
       {dialog === "admin-user" && <><span className="eyebrow">ACCESS ADMINISTRATION</span><h2>Invite a workspace user</h2><p>Create their account record, assign least-privilege access and prepare the invitation email.</p><form className="dialog-form" onSubmit={addAdminUser}><label>Full name<input name="name" required autoFocus/></label><label>Email address<input name="email" type="email" required/></label><label>Workspace role<select name="role"><option>Installer</option><option>Technical Supervisor</option><option>Office</option><option>Auditor</option><option>Administrator</option></select></label><button className="dialog-submit"><Users size={16}/>Create and invite user</button></form></>}
       {dialog === "workflow" && <><span className="eyebrow">WORKFLOW AUTOMATION</span><h2>Create an administration rule</h2><p>Rules are saved with the organisation workspace and can be paused at any time.</p><form className="dialog-form" onSubmit={addWorkflow}><label>Rule name<input name="name" required autoFocus placeholder="e.g. Failed evidence escalation"/></label><label>When this happens<input name="trigger" required placeholder="Evidence is rejected twice"/></label><label>Then do this<input name="action" required placeholder="Notify administrator and Technical Supervisor"/></label><button className="dialog-submit"><Sparkles size={16}/>Activate workflow</button></form></>}
       {dialog === "integration" && <><span className="eyebrow">INTEGRATION ADMINISTRATION</span><h2>Add a connection</h2><form className="dialog-form" onSubmit={addIntegration}><label>Integration name<input name="name" required autoFocus/></label><label>Category<select name="category"><option>Certification</option><option>Grid</option><option>Communications</option><option>Data</option><option>Operations</option></select></label><label>Connection purpose<input name="detail" required placeholder="What this connection supports"/></label><button className="dialog-submit"><ExternalLink size={16}/>Add connection</button></form></>}
@@ -622,29 +626,71 @@ function ProductsView() {
 }
 
 function TerritoryView() {
-  const { openDialog, showToast } = useOS();
-  const [segment,setSegment] = useState("All technologies");
-  const [postcode, setPostcode] = useState("SO21");
-  const score = 72 + (postcode.replace(/\s/g, "").split("").reduce((total, character) => total + character.charCodeAt(0), 0) % 25);
+  const { data, setData, openDialog, showToast, recordAudit } = useOS();
+  const latest = data.territoryAnalyses[0] ?? null;
+  const [segment,setSegment] = useState(latest?.segment ?? "Solar + battery");
+  const [postcode, setPostcode] = useState(latest?.postcode ?? data.projects[0]?.postcode ?? "SO21 1BT");
+  const [analysis, setAnalysis] = useState<TerritoryAnalysis | null>(latest);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const cells=[34,67,48,82,92,55,74,28,63,88,44,71,96,58,39,77,84,52,69,91,46,79,61,86];
+  const analysePostcode = async (candidate = postcode) => {
+    const requested = candidate.trim().toUpperCase(); if (!requested) { setError("Enter a complete UK postcode."); return; }
+    setLoading(true); setError("");
+    try {
+      const response = await fetch(`/api/territory?postcode=${encodeURIComponent(requested)}`, { cache: "no-store" });
+      const payload = await response.json() as (Omit<TerritoryAnalysis,"score"|"segment"|"signals"> & { error?: string });
+      if (!response.ok || payload.error) throw new Error(payload.error || "Postcode lookup failed.");
+      const localProjects = data.projects.filter((project) => project.postcode.toUpperCase().startsWith(payload.outcode));
+      const completedProjects = localProjects.filter((project) => project.progress >= 90);
+      const officeArea = data.adminSettings.officePostcode.replace(/\s/g, "").match(/^[A-Z]+/)?.[0] ?? "";
+      const targetArea = payload.outcode.match(/^[A-Z]+/)?.[0] ?? "";
+      const segmentNeedle = segment === "Heat pumps" ? "heat" : segment === "Battery storage" ? "eess" : segment === "All technologies" ? "" : "pv";
+      const relevantProjects = data.projects.filter((project) => !segmentNeedle || project.system.toLowerCase().includes(segmentNeedle));
+      const signals = [
+        { label: "Existing project evidence", value: Math.min(96, 52 + localProjects.length * 14), note: `${localProjects.length} workspace project${localProjects.length === 1 ? "" : "s"} in ${payload.outcode}` },
+        { label: "Postcode data quality", value: Math.max(58, 100 - Math.max(0, payload.quality - 1) * 9), note: `ONSPD quality indicator ${payload.quality}` },
+        { label: "Operational proximity", value: officeArea && officeArea === targetArea ? 92 : 64, note: officeArea === targetArea ? `Matches office postal area ${officeArea}` : `Outside office postal area ${officeArea || "not set"}` },
+        { label: "Technology experience", value: Math.min(94, 54 + relevantProjects.length * 9 + completedProjects.length * 4), note: `${relevantProjects.length} relevant project${relevantProjects.length === 1 ? "" : "s"} in the workspace` },
+      ];
+      const scored: TerritoryAnalysis = { ...payload, score: Math.round(signals.reduce((total, item) => total + item.value, 0) / signals.length), segment, signals };
+      setAnalysis(scored); setPostcode(scored.postcode);
+      setData((current) => ({ ...current, territoryAnalyses: [scored, ...current.territoryAnalyses.filter((item) => !(item.postcode === scored.postcode && item.segment === scored.segment))].slice(0,20) }));
+      recordAudit("Territory analysed", `${scored.postcode} · ${segment} · score ${scored.score}`, "Territory"); showToast(`${scored.postcode} verified and saved.`);
+    } catch (lookupError) { setError(lookupError instanceof Error ? lookupError.message : "Territory lookup failed."); }
+    finally { setLoading(false); }
+  };
+  const exportAnalysis = () => {
+    if (!analysis) { showToast("Analyse a postcode before exporting."); return; }
+    const rows = [
+      ["postcode",analysis.postcode],["segment",analysis.segment],["headroom_score",String(analysis.score)],["admin_district",analysis.adminDistrict],["ward",analysis.ward],["constituency",analysis.parliamentaryConstituency],["region",analysis.region],["latitude",String(analysis.latitude ?? "")],["longitude",String(analysis.longitude ?? "")],["source",analysis.source],["checked_at",analysis.checkedAt],
+      ...analysis.signals.map((signal) => [`signal_${signal.label.toLowerCase().replaceAll(" ","_")}`,String(signal.value)]),
+    ];
+    downloadText(`${analysis.outcode.toLowerCase()}-territory-analysis.csv`, `field,value\n${rows.map(([field,value]) => `"${field}","${value.replaceAll('"','""')}"`).join("\n")}\n`, "text/csv"); showToast(`${analysis.postcode} analysis exported.`);
+  };
+  const candidates = [...(analysis?.nearest ?? []), ...data.projects.map((project) => ({ postcode: project.postcode, outcode: project.postcode.split(" ")[0], district: project.place, latitude: null, longitude: null }))].filter((item,index,items) => item.postcode !== analysis?.postcode && items.findIndex((candidate) => candidate.postcode === item.postcode) === index).slice(0,4);
   return <div className="module-page">
-    <ModuleHeader eyebrow="TERRITORY INTELLIGENCE" title="Find demand before your competitors do" description="Prioritise postcodes using adoption, installer density, housing suitability and your own conversion data." icon={Map} action="Create campaign" onAction={() => openDialog("campaign")} />
-    <MetricStrip items={[{label:"SELECTED OPPORTUNITY",value:postcode,note:`Score ${score} / 100`,tone:"gold-text"},{label:"UNTAPPED HOMES",value:(4200 + score * 46).toLocaleString("en-GB"),note:"Modelled addressable homes"},{label:"INSTALLER DENSITY",value:score>85?"Low":"Medium",note:"Check live MCS listing",tone:"green-text"},{label:"30-DAY PIPELINE",value:`£${Math.round(score*3.08)}k`,note:"Illustrative weighted value"}]} />
+    <ModuleHeader eyebrow="TERRITORY INTELLIGENCE" title="Verify, score and action a UK territory" description="Combine live postcode geography with your own project history, then save, compare, export and build a campaign." icon={Map} action="Create campaign" onAction={() => openDialog("campaign")} />
+    <form className="territory-search-card" onSubmit={(event) => { event.preventDefault(); void analysePostcode(); }}>
+      <span className="icon-tile gold"><MapPin size={18}/></span><label><span>UK POSTCODE</span><input value={postcode} onChange={(event) => setPostcode(event.target.value.toUpperCase())} placeholder="SO21 1BT" aria-label="UK postcode to analyse"/></label><label><span>TECHNOLOGY</span><select value={segment} onChange={(event) => setSegment(event.target.value)}><option>Solar + battery</option><option>Solar PV</option><option>Heat pumps</option><option>Battery storage</option><option>All technologies</option></select></label><button disabled={loading}>{loading ? <RefreshCw className="spin" size={15}/> : <Search size={15}/>} {loading ? "Checking…" : "Analyse territory"}</button>
+    </form>
+    {error && <div className="territory-alert"><CircleAlert size={16}/><span><strong>Postcode not analysed.</strong> {error}</span><button onClick={() => setError("")}><X size={14}/></button></div>}
+    <MetricStrip items={[{label:"VERIFIED POSTCODE",value:analysis?.postcode ?? "—",note:analysis ? `${analysis.adminDistrict}, ${analysis.region}` : "Run a live postcode check",tone:"gold-text"},{label:"HEADROOM SCORE",value:analysis ? `${analysis.score}/100` : "—",note:"Workspace planning score"},{label:"LOCAL PROJECTS",value:analysis ? String(data.projects.filter((project) => project.postcode.startsWith(analysis.outcode)).length) : "—",note:analysis ? `Recorded in ${analysis.outcode}` : "Based on your records",tone:"green-text"},{label:"NEARBY AREAS",value:analysis ? String(analysis.nearest.length) : "—",note:"Returned by live geodata"}]} />
     <section className="territory-layout">
       <article className="territory-map-card">
-        <div className="map-toolbar"><div><span className="eyebrow">OPPORTUNITY MAP</span><h2>Hampshire and West Sussex</h2></div><div className="segment-picker"><label className="postcode-field"><Search size={14}/><input value={postcode} onChange={(event) => setPostcode(event.target.value.toUpperCase())} onKeyDown={(event) => { if (event.key === "Enter") showToast(`${postcode} opportunity score refreshed.`); }} aria-label="Analyse postcode"/></label><button onClick={()=>setSegment(segment==="All technologies"?"Solar + battery":"All technologies")}>{segment}<ChevronDown size={14}/></button><button onClick={() => window.open(`https://www.google.com/maps/search/${encodeURIComponent(postcode + " UK")}`, "_blank", "noopener,noreferrer")} aria-label="Open selected postcode in maps"><MapPin size={15}/></button></div></div>
-        <div className="map-canvas"><div className="map-grid">{cells.map((value,index)=><button key={index} onClick={() => setPostcode(index===4?"SO21":index===12?"SO51":index===19?"PO13":`SO${20+index}`)} style={{"--heat":value/100} as React.CSSProperties} title={`Opportunity score ${value}`}>{[4,12,19].includes(index)&&<span>{index===4?"SO21":index===12?"SO51":"PO13"}</span>}</button>)}</div><div className="map-routes"><i/><i/><i/></div><div className="map-pin primary"><MapPin size={22}/><b>{postcode}</b><small>{score}</small></div><div className="map-pin secondary"><MapPin size={19}/><b>SO51</b><small>86</small></div><div className="map-legend"><span>Lower potential</span><i/><span>Higher potential</span></div></div>
+        <div className="map-toolbar"><div><span className="eyebrow">VERIFIED GEOGRAPHY</span><h2>{analysis ? `${analysis.adminDistrict} · ${analysis.region}` : "Analyse a complete postcode"}</h2></div><div className="segment-picker"><button disabled={!analysis} onClick={exportAnalysis}><Download size={14}/>Export</button><button disabled={!analysis} onClick={() => analysis && window.open(`https://www.google.com/maps/search/${encodeURIComponent(`${analysis.latitude},${analysis.longitude}`)}`, "_blank", "noopener,noreferrer")}><MapPin size={15}/>Open map</button></div></div>
+        <div className={`map-canvas territory-live-map ${!analysis ? "empty" : ""}`}><div className="map-grid">{cells.map((value,index)=><span key={index} style={{"--heat":analysis ? Math.max(.18,(value + analysis.score) % 100 / 100) : .12} as React.CSSProperties}/>)}</div><div className="map-routes"><i/><i/><i/></div>{analysis ? <><div className="map-pin primary"><MapPin size={22}/><b>{analysis.postcode}</b><small>{analysis.score}/100</small></div>{analysis.nearest.slice(0,2).map((item,index) => <button className={`map-pin live-nearby nearby-${index}`} key={item.postcode} onClick={() => void analysePostcode(item.postcode)}><MapPin size={18}/><b>{item.outcode}</b><small>Analyse</small></button>)}<div className="territory-coordinates"><strong>{analysis.latitude?.toFixed(5)}, {analysis.longitude?.toFixed(5)}</strong><span>{analysis.ward} · {analysis.parliamentaryConstituency}</span></div></> : <div className="map-empty"><MapPinned size={28}/><strong>No territory selected</strong><span>Enter a complete UK postcode above to load verified geographic data.</span></div>}</div>
+        {analysis && <div className="territory-provenance"><ShieldCheck size={15}/><span><strong>Verified geography</strong><small>{analysis.source} · checked {new Date(analysis.checkedAt).toLocaleString("en-GB", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}. The Headroom score uses this geography plus your workspace records; it is not an MCS market forecast.</small></span></div>}
       </article>
-      <aside className="opportunity-list workspace-card"><div className="card-title"><div><span className="eyebrow">NEXT-BEST POSTCODES</span><h2>Ranked opportunities</h2></div><button onClick={()=>setSegment(segment==="All technologies"?"Solar + battery":"All technologies")} aria-label="Change opportunity segment"><Filter size={14}/></button></div>{[
-        ["SO21","Winchester rural","92","8,420 homes","+18%"],
-        ["SO51","Romsey","86","6,180 homes","+14%"],
-        ["PO13","Lee-on-Solent","81","5,760 homes","+11%"],
-        ["SP2","West Salisbury","78","4,950 homes","+9%"],
-      ].map(([code,place,rankScore,homes,growth],index)=><button key={code} onClick={() => setPostcode(code)}><span className="rank">0{index+1}</span><span><strong>{code}</strong><small>{place}</small></span><span><strong>{rankScore}</strong><small>{homes}</small></span><em>{growth}</em><ChevronRight size={15}/></button>)}</aside>
+      <aside className="opportunity-list workspace-card"><div className="card-title"><div><span className="eyebrow">NEARBY & KNOWN AREAS</span><h2>Continue territory checks</h2></div><Filter size={15}/></div>{candidates.map((item,index)=><button key={item.postcode} onClick={() => void analysePostcode(item.postcode)}><span className="rank">0{index+1}</span><span><strong>{item.outcode}</strong><small>{item.district || "Nearby postcode"}</small></span><span><strong>{item.postcode}</strong><small>Full postcode</small></span><em>Analyse</em><ChevronRight size={15}/></button>)}{candidates.length === 0 && <div className="territory-side-empty"><MapPin size={20}/><strong>Nearby areas appear here</strong><small>Run a postcode analysis to retrieve them.</small></div>}</aside>
     </section>
     <section className="two-column-grid">
-      <article className="workspace-card compact-card"><div className="card-title"><span className="icon-tile gold"><TrendingUp size={18}/></span><div><span className="eyebrow">WHY SO21</span><h2>Opportunity signals</h2></div></div><div className="signal-bars">{[["Suitable housing",91],["Low-carbon adoption gap",84],["Low installer density",88],["Your conversion rate",76]].map(([label,value])=><div key={label as string}><span>{label}</span><i><b style={{width:`${value}%`}}/></i><strong>{value}</strong></div>)}</div></article>
-      <article className="workspace-card compact-card"><div className="card-title"><span className="icon-tile blue"><Users size={18}/></span><div><span className="eyebrow">COMPETITIVE LANDSCAPE</span><h2>Installer presence</h2></div></div><div className="competitor-stat"><strong>3</strong><span>illustrative installers within target radius<small>Verify against the live MCS listing</small></span></div><div className="stacked-actions"><a className="wide-action" href="https://mcscertified.com/find-an-installer/" target="_blank" rel="noreferrer"><ExternalLink size={15}/> Check MCS installers</a><a className="wide-action" href={officialResources[5].href} target="_blank" rel="noreferrer"><ChartNoAxesCombined size={15}/> Open MCS data dashboard</a></div></article>
+      <article className="workspace-card compact-card"><div className="card-title"><span className="icon-tile gold"><TrendingUp size={18}/></span><div><span className="eyebrow">HEADROOM SCORE</span><h2>{analysis ? `Why ${analysis.postcode} scores ${analysis.score}` : "Transparent opportunity signals"}</h2></div></div>{analysis ? <div className="signal-bars detailed">{analysis.signals.map((signal)=><div key={signal.label}><span>{signal.label}<small>{signal.note}</small></span><i><b style={{width:`${signal.value}%`}}/></i><strong>{signal.value}</strong></div>)}</div> : <div className="territory-card-empty"><Gauge size={22}/><span>Signals will use verified postcode quality, operational proximity and your own project history.</span></div>}</article>
+      <article className="workspace-card compact-card"><div className="card-title"><span className="icon-tile blue"><Users size={18}/></span><div><span className="eyebrow">OFFICIAL MARKET CHECKS</span><h2>Validate before committing spend</h2></div></div><p className="territory-check-copy">Headroom does not invent installer counts or adoption figures. Use the official MCS services for current installer presence and market data, and ENA for the network operator.</p><div className="territory-official-actions"><a className="wide-action" href="https://mcscertified.com/find-an-installer/" target="_blank" rel="noreferrer"><ExternalLink size={15}/>Find MCS installers</a><a className="wide-action" href={officialResources[5].href} target="_blank" rel="noreferrer"><ChartNoAxesCombined size={15}/>MCS data dashboard</a><a className="wide-action" href={officialResources[3].href} target="_blank" rel="noreferrer"><MapPinned size={15}/>Find the DNO</a></div></article>
+    </section>
+    <section className="territory-history-grid">
+      <article className="workspace-card"><div className="table-toolbar"><div><span className="eyebrow">SAVED ANALYSES</span><h2>Recent territory decisions</h2></div><span className="count-badge">{data.territoryAnalyses.length}</span></div><div className="territory-history-list">{data.territoryAnalyses.slice(0,5).map((item) => <button key={`${item.postcode}-${item.segment}`} onClick={() => { setAnalysis(item); setPostcode(item.postcode); setSegment(item.segment); }}><span><strong>{item.postcode}</strong><small>{item.adminDistrict} · {item.segment}</small></span><em>{item.score}/100</em><small>{new Date(item.checkedAt).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}</small><ChevronRight size={14}/></button>)}{data.territoryAnalyses.length === 0 && <div className="territory-side-empty"><Save size={20}/><strong>No saved analyses yet</strong><small>Your first verified postcode will be saved automatically.</small></div>}</div></article>
+      <article className="workspace-card"><div className="table-toolbar"><div><span className="eyebrow">CAMPAIGNS</span><h2>Territory hand-off</h2></div><button className="quiet-button" onClick={() => openDialog("campaign")}><Plus size={14}/>Create</button></div><div className="territory-history-list">{data.campaigns.slice(0,5).map((campaign) => <div key={`${campaign.postcode}-${campaign.createdAt}`}><span><strong>{campaign.postcode}</strong><small>{campaign.segment}</small></span><em>Draft</em><small>{new Date(campaign.createdAt).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}</small><CheckCircle2 size={14}/></div>)}{data.campaigns.length === 0 && <div className="territory-side-empty"><Send size={20}/><strong>No campaigns created</strong><small>Analyse a territory, then create an exportable campaign brief.</small></div>}</div></article>
     </section>
   </div>;
 }
