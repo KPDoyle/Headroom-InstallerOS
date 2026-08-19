@@ -1,10 +1,7 @@
-import { eq } from "drizzle-orm";
-import { getDb } from "../../../db";
-import { installerWorkspaces } from "../../../db/schema";
+import { get, put } from "@vercel/blob";
+import { blobStorageConfigured, workspaceBlobPath } from "../../../lib/vercel-storage";
 
 export const dynamic = "force-dynamic";
-
-const organisationKey = "headroom-installer-os-primary";
 
 function actorEmail(request: Request) {
   return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() || "";
@@ -15,19 +12,20 @@ function errorResponse(error: unknown) {
   return Response.json({ error: message }, { status: 503 });
 }
 
+type WorkspaceEnvelope = { state: Record<string, unknown>; updatedAt: string };
+
+async function readWorkspace(): Promise<WorkspaceEnvelope | null> {
+  if (!blobStorageConfigured()) throw new Error("Vercel Blob is not connected to this project");
+  const result = await get(workspaceBlobPath, { access: "private", useCache: false });
+  if (!result) return null;
+  if (result.statusCode !== 200) throw new Error(`Workspace storage returned ${result.statusCode}`);
+  return JSON.parse(await new Response(result.stream).text()) as WorkspaceEnvelope;
+}
+
 export async function GET(request: Request) {
   try {
-    const db = getDb();
-    let [record] = await db.select().from(installerWorkspaces).where(eq(installerWorkspaces.workspaceKey, organisationKey)).limit(1);
-    const email = actorEmail(request);
-    if (!record && email) {
-      const [personalRecord] = await db.select().from(installerWorkspaces).where(eq(installerWorkspaces.workspaceKey, email)).limit(1);
-      if (personalRecord) {
-        await db.insert(installerWorkspaces).values({ workspaceKey: organisationKey, state: personalRecord.state, updatedAt: personalRecord.updatedAt }).onConflictDoNothing();
-        record = personalRecord;
-      }
-    }
-    return Response.json({ state: record ? JSON.parse(record.state) : null, updatedAt: record?.updatedAt ?? null, actor: email || null });
+    const record = await readWorkspace();
+    return Response.json({ state: record?.state ?? null, updatedAt: record?.updatedAt ?? null, actor: actorEmail(request) || null, storage: "vercel-blob" });
   } catch (error) {
     return errorResponse(error);
   }
@@ -40,10 +38,10 @@ export async function PUT(request: Request) {
     const stateObject = payload.state as Record<string, unknown>;
     const state = JSON.stringify(stateObject);
     if (state.length > 750_000) return Response.json({ error: "workspace state is too large" }, { status: 413 });
-    const db = getDb(); const updatedAt = new Date().toISOString(); const email = actorEmail(request);
-    const [existing] = await db.select().from(installerWorkspaces).where(eq(installerWorkspaces.workspaceKey, organisationKey)).limit(1);
+    const updatedAt = new Date().toISOString(); const email = actorEmail(request);
+    const existing = await readWorkspace();
     if (existing && email) {
-      const current = JSON.parse(existing.state) as Record<string, unknown>;
+      const current = existing.state;
       const users = Array.isArray(current.adminUsers) ? current.adminUsers as Array<{ email?: string; role?: string; status?: string }> : [];
       const actor = users.find((user) => user.email?.trim().toLowerCase() === email);
       if (users.length > 0 && !actor) return Response.json({ error: "workspace user is not registered" }, { status: 403 });
@@ -52,8 +50,14 @@ export async function PUT(request: Request) {
       const adminChanged = administrativeKeys.some((key) => JSON.stringify(current[key]) !== JSON.stringify(stateObject[key]));
       if (adminChanged && actor && actor.role !== "Administrator") return Response.json({ error: "administrator access is required" }, { status: 403 });
     }
-    await db.insert(installerWorkspaces).values({ workspaceKey: organisationKey, state, updatedAt }).onConflictDoUpdate({ target: installerWorkspaces.workspaceKey, set: { state, updatedAt } });
-    return Response.json({ saved: true, updatedAt });
+    await put(workspaceBlobPath, JSON.stringify({ state: stateObject, updatedAt }), {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "application/json",
+      cacheControlMaxAge: 60,
+    });
+    return Response.json({ saved: true, updatedAt, storage: "vercel-blob" });
   } catch (error) {
     return errorResponse(error);
   }

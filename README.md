@@ -2,12 +2,12 @@
 
 Headroom Installer OS is a connected operating workspace for UK renewable-energy installers. It combines project delivery, installation evidence, MCS compliance, MID preparation, customer handover, product control, territory intelligence and full workspace administration in one Headroom-branded application.
 
-## Live applications
+## Live application
 
-- Full workspace: https://headroom-installer-os.kevin-doyle296372.chatgpt.site
-- Public demonstration: https://headroom-installeros.vercel.app
+- Production: https://headroom-installeros.vercel.app
+- Source: https://github.com/KPDoyle/Headroom-InstallerOS
 
-The full workspace uses managed D1 and R2 bindings for saved records and files. The public Vercel demonstration automatically uses device-local fallback storage because Cloudflare bindings are not present there.
+The GitHub `main` branch is the production source of truth. Vercel's Git integration builds every push with native Next.js and publishes successful `main` deployments to the production URL. Pull requests receive preview deployments.
 
 ## Functional modules
 
@@ -28,15 +28,17 @@ The application links to the MCS Product Directory, MCS Standards & Tools Librar
 
 ## Data and files
 
-- D1 stores the shared organisation workspace state as a versionable JSON record and migrates the earlier owner record on first use.
-- R2 stores evidence and handover documents up to 10 MB each.
-- The Sites identity gate is the primary authorisation boundary. Registered in-app users can be suspended, while administration changes require an Administrator role.
+- Private Vercel Blob storage holds the shared organisation workspace state.
+- Private Vercel Blob storage also holds evidence and handover documents up to 10 MB each; files are streamed through the application rather than exposed publicly.
+- Registered in-app users can be suspended, while administration changes require an Administrator role when an authenticated identity header is supplied by the access layer.
 - Administration changes, access decisions, workflow controls and data operations are recorded in the searchable audit history.
-- If hosted storage is unavailable, the browser clearly switches to `LOCAL` fallback mode.
+- If hosted storage is unavailable, the browser clearly switches to `LOCAL` fallback mode instead of losing changes.
+
+The Vercel project requires a connected private Blob store. Vercel automatically supplies `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` with its rotating deployment OIDC token.
 
 ## Development
 
-Requirements: Node.js 22 or later, `flock`, `curl` and GNU `timeout`.
+Requirements: Node.js 24.
 
 ```bash
 npm ci
@@ -47,9 +49,9 @@ Useful checks:
 
 ```bash
 npm run lint
-npx tsc --noEmit
+npm run typecheck
 npm test
-VERCEL=1 npm run build
+npm run build
 ```
 
 The normal `npm run build` creates and validates the Vinext/Cloudflare Worker artifact. Setting `VERCEL=1` creates a standard Next.js production build for Vercel.
@@ -57,11 +59,12 @@ The normal `npm run build` creates and validates the Vinext/Cloudflare Worker ar
 ## Project structure
 
 - `app/page.tsx` — Headroom interface and installer workflows
-- `app/api/workspace/route.ts` — durable workspace API
-- `app/api/files/route.ts` — evidence and document storage API
-- `db/schema.ts` and `drizzle/` — D1 schema and migration
-- `.openai/hosting.json` — Sites project and logical D1/R2 bindings
-- `scripts/` — bounded builds and artifact verification
+- `app/api/workspace/route.ts` — private Vercel Blob workspace API
+- `app/api/files/route.ts` — private Vercel Blob evidence and document API
+- `app/api/territory/route.ts` — live UK postcode intelligence API
+- `app/api/health/route.ts` — deployment and storage health signal
+- `vercel.json` — explicit native Next.js build configuration
+- `.github/workflows/ci.yml` — GitHub checks for tests, lint, types and production build
 
 ## Important scope
 

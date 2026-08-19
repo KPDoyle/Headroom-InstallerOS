@@ -4,7 +4,6 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Headroom Installer OS",
   description: "The connected MCS installation workspace for evidence, compliance, certificates, customers, products and territory intelligence.",
-  other: { "codex-preview": "development" },
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
