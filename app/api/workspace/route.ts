@@ -2,7 +2,8 @@ import type { UserRole, UserStatus, Viewer } from "../../../lib/auth-types";
 import type postgres from "postgres";
 import { authErrorResponse, requireViewer, writeAuditEvent } from "../../../lib/auth";
 import { ensureSchema, getDatabase } from "../../../lib/database";
-import { isPublicAccessViewer } from "../../../lib/public-access";
+import { isPublicAccessEnabled, isPublicAccessViewer } from "../../../lib/public-access";
+import { isSupabaseConfigured } from "../../../lib/supabase/config";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,11 @@ async function organisationUsers(viewer: Viewer) {
 }
 
 export async function GET() {
+  if (isPublicAccessEnabled() && !isSupabaseConfigured()) {
+    return Response.json({ state: null, updatedAt: null, storage: "browser-local" }, {
+      headers: { "cache-control": "no-store" },
+    });
+  }
   try {
     const viewer = await requireViewer();
     await ensureSchema();
@@ -101,11 +107,19 @@ export async function GET() {
       storage: "supabase-postgres",
     }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
+    if (isPublicAccessEnabled()) {
+      return Response.json({ state: null, updatedAt: null, storage: "browser-local" }, {
+        headers: { "cache-control": "no-store" },
+      });
+    }
     return authErrorResponse(error);
   }
 }
 
 export async function PUT(request: Request) {
+  if (isPublicAccessEnabled() && !isSupabaseConfigured()) {
+    return Response.json({ saved: false, updatedAt: null, storage: "browser-local" });
+  }
   try {
     const viewer = await requireViewer();
     await ensureSchema();
@@ -150,6 +164,9 @@ export async function PUT(request: Request) {
     }
     return Response.json({ saved: true, updatedAt: rows[0]?.updated_at, storage: "supabase-postgres" });
   } catch (error) {
+    if (isPublicAccessEnabled()) {
+      return Response.json({ saved: false, updatedAt: null, storage: "browser-local" });
+    }
     return authErrorResponse(error);
   }
 }

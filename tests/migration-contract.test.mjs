@@ -51,12 +51,15 @@ test("labels the staged public workspace and preserves the login switch", async 
   assert.match(installer, /PUBLIC PREVIEW · LOGIN OFF/);
   assert.match(installer, /window\.localStorage/);
   assert.match(installer, /window\.indexedDB/);
+  assert.match(installer, /payload\.storage === "browser-local"/);
   assert.match(installer, /ON DEVICE/);
   assert.match(health, /public-preview/);
   assert.match(health, /authenticated/);
   assert.match(health, /preview-local/);
   assert.match(auth, /createPublicViewer\(PUBLIC_ACCESS_ORGANISATION_ID/);
   assert.match(page, /!isSupabaseConfigured\(\) && !isPublicAccessEnabled\(\)/);
+  const workspaceRoute = await read("app/api/workspace/route.ts");
+  assert.match(workspaceRoute, /storage: "browser-local"/);
 });
 
 test("keeps live Territory Intelligence behind a server route", async () => {

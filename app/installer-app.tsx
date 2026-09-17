@@ -277,8 +277,14 @@ function InstallerProvider({ children, viewer }: { children: React.ReactNode; vi
     const timeout = window.setTimeout(() => controller.abort(), 3_500);
     fetch("/api/workspace", { cache: "no-store", signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw new Error("Cloud workspace unavailable");
-      const payload = await response.json() as { state?: InstallerData | null };
+      const payload = await response.json() as { state?: InstallerData | null; storage?: string };
       if (cancelled) return;
+      if (payload.storage === "browser-local") {
+        setData(readLocalWorkspace());
+        setStorageMode("local");
+        setLoaded(true);
+        return;
+      }
       if (payload.state) setData(normaliseData(payload.state));
       setStorageMode("cloud");
       setLoaded(true);
