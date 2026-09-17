@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import InstallerWorkspace from "./installer-app";
 import { getViewer, ViewerAccessError } from "../lib/auth";
+import { isPublicAccessEnabled } from "../lib/public-access";
 import { isSupabaseConfigured } from "../lib/supabase/config";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ function ConfigurationRequired() {
 }
 
 export default async function Home() {
-  if (!isSupabaseConfigured()) return <ConfigurationRequired />;
+  if (!isSupabaseConfigured() && !isPublicAccessEnabled()) return <ConfigurationRequired />;
 
   let viewer = null;
   let accessError = "";

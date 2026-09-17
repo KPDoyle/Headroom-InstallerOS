@@ -51,27 +51,6 @@ async function findProfile(userId: string) {
   return rows[0] ?? null;
 }
 
-async function publicViewer() {
-  const sql = getDatabase();
-  const organisation = await sql.begin(async (transaction) => {
-    await transaction`select pg_advisory_xact_lock(hashtext('headroom-public-preview'))`;
-    const existing = await transaction<{ id: string; name: string }[]>`
-      select id, name from public.organisations order by created_at asc limit 1
-    `;
-    if (existing[0]) return existing[0];
-    const created = await transaction<{ id: string; name: string }[]>`
-      insert into public.organisations (id, name)
-      values (${PUBLIC_ACCESS_ORGANISATION_ID}, 'Headroom Installer Organisation')
-      returning id, name
-    `;
-    return created[0];
-  });
-  if (!organisation) {
-    throw new ViewerAccessError("access-unavailable", "Public preview workspace could not be initialised");
-  }
-  return createPublicViewer(organisation.id, organisation.name);
-}
-
 function userDisplayName(user: User) {
   const metadataName = user.user_metadata?.full_name || user.user_metadata?.name;
   return typeof metadataName === "string" && metadataName.trim()
@@ -135,8 +114,11 @@ async function bootstrapFirstAdministrator(user: User) {
 }
 
 export async function getViewer(): Promise<Viewer | null> {
+  if (isPublicAccessEnabled()) {
+    return createPublicViewer(PUBLIC_ACCESS_ORGANISATION_ID, "Headroom Installer Organisation");
+  }
+
   await ensureSchema();
-  if (isPublicAccessEnabled()) return publicViewer();
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;

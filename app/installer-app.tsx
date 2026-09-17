@@ -157,12 +157,13 @@ type OSContextValue = {
   setData: React.Dispatch<React.SetStateAction<InstallerData>>;
   activeProject: Project;
   viewer: Viewer;
-  storageMode: "loading" | "cloud" | "error";
+  storageMode: "loading" | "cloud" | "local" | "error";
   toast: string;
   showToast: (message: string) => void;
   dialog: Dialog;
   openDialog: (dialog: Dialog) => void;
   uploadFile: (file: File, purpose: string) => Promise<{ fileName: string; fileKey?: string }>;
+  openFile: (fileKey: string) => Promise<void>;
   recordAudit: (action: string, detail: string, category?: string) => void;
 };
 
@@ -179,17 +180,102 @@ function downloadText(name: string, text: string, type = "application/json") {
   URL.revokeObjectURL(url);
 }
 
+const LOCAL_WORKSPACE_KEY = "headroom-installer-os:workspace:v1";
+const LOCAL_FILE_DATABASE = "headroom-installer-os";
+const LOCAL_FILE_STORE = "documents";
+
+function localPreviewData(value?: Partial<InstallerData> | null) {
+  const data = normaliseData(value);
+  return {
+    ...data,
+    integrations: data.integrations.map((integration) => integration.id === "i3" ? {
+      ...integration,
+      name: "Device preview storage",
+      detail: "Projects, evidence and documents saved in this browser",
+      status: "Connected" as const,
+      lastSync: "On device",
+    } : integration),
+  };
+}
+
+function readLocalWorkspace() {
+  try {
+    const stored = window.localStorage.getItem(LOCAL_WORKSPACE_KEY);
+    return stored ? localPreviewData(JSON.parse(stored) as Partial<InstallerData>) : localPreviewData();
+  } catch (error) {
+    console.warn("[workspace] local preview state could not be read", error);
+    return localPreviewData();
+  }
+}
+
+function writeLocalWorkspace(data: InstallerData) {
+  window.localStorage.setItem(LOCAL_WORKSPACE_KEY, JSON.stringify(data));
+}
+
+function openLocalFileDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(LOCAL_FILE_DATABASE, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(LOCAL_FILE_STORE)) {
+        request.result.createObjectStore(LOCAL_FILE_STORE, { keyPath: "key" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Device document storage could not be opened"));
+  });
+}
+
+async function storeLocalFile(file: File, purpose: string) {
+  const database = await openLocalFileDatabase();
+  const safePurpose = purpose.replace(/[^a-z0-9/_-]/gi, "-");
+  const key = `local/${safePurpose}/${crypto.randomUUID()}`;
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(LOCAL_FILE_STORE, "readwrite");
+    transaction.objectStore(LOCAL_FILE_STORE).put({
+      key,
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      blob: file,
+      createdAt: new Date().toISOString(),
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("Document could not be saved on this device"));
+  });
+  database.close();
+  return { fileName: file.name, fileKey: key };
+}
+
+async function downloadLocalFile(fileKey: string) {
+  const database = await openLocalFileDatabase();
+  const record = await new Promise<{ fileName: string; contentType: string; blob: Blob } | undefined>((resolve, reject) => {
+    const request = database.transaction(LOCAL_FILE_STORE, "readonly").objectStore(LOCAL_FILE_STORE).get(fileKey);
+    request.onsuccess = () => resolve(request.result as { fileName: string; contentType: string; blob: Blob } | undefined);
+    request.onerror = () => reject(request.error ?? new Error("Document could not be read from this device"));
+  });
+  database.close();
+  if (!record) throw new Error("This device no longer has that document");
+  const url = URL.createObjectURL(record.blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = record.fileName;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
 function InstallerProvider({ children, viewer }: { children: React.ReactNode; viewer: Viewer }) {
   const [data, setData] = useState<InstallerData>(defaultData);
-  const [storageMode, setStorageMode] = useState<"loading" | "cloud" | "error">("loading");
+  const [storageMode, setStorageMode] = useState<"loading" | "cloud" | "local" | "error">("loading");
   const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPublicPreview = viewer.id === "public-preview";
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/workspace", { cache: "no-store" }).then(async (response) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3_500);
+    fetch("/api/workspace", { cache: "no-store", signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw new Error("Cloud workspace unavailable");
       const payload = await response.json() as { state?: InstallerData | null };
       if (cancelled) return;
@@ -199,25 +285,49 @@ function InstallerProvider({ children, viewer }: { children: React.ReactNode; vi
     }).catch((error: unknown) => {
       if (cancelled) return;
       console.error("[workspace] load failed", error);
-      setStorageMode("error");
+      if (isPublicPreview) {
+        setData(readLocalWorkspace());
+        setStorageMode("local");
+        setToast("Cloud sync is unavailable. This public preview is saving changes on this device.");
+      } else {
+        setStorageMode("error");
+        setToast("The shared workspace could not be loaded. Changes are paused until the connection recovers.");
+      }
       setLoaded(true);
-      setToast("The shared workspace could not be loaded. Changes are paused until the connection recovers.");
-    });
-    return () => { cancelled = true; };
-  }, []);
+    }).finally(() => window.clearTimeout(timeout));
+    return () => { cancelled = true; window.clearTimeout(timeout); controller.abort(); };
+  }, [isPublicPreview]);
 
   useEffect(() => {
     if (!loaded) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      if (storageMode === "cloud" || storageMode === "error") {
+      if (storageMode === "local") {
+        try {
+          writeLocalWorkspace(data);
+        } catch (error) {
+          console.error("[workspace] device save failed", error);
+          setStorageMode("error");
+          setToast("This browser could not save the latest change. Download a workspace backup before closing it.");
+        }
+      } else if (storageMode === "cloud") {
         fetch("/api/workspace", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ state: data }) })
           .then(async (response) => { if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Save failed"); setStorageMode("cloud"); })
-          .catch((error: unknown) => { console.error("[workspace] save failed", error); setStorageMode("error"); setToast("Shared save is unavailable — your change has not been committed yet."); });
+          .catch((error: unknown) => {
+            console.error("[workspace] save failed", error);
+            if (isPublicPreview) {
+              writeLocalWorkspace(localPreviewData(data));
+              setStorageMode("local");
+              setToast("Cloud sync was interrupted. Changes are now saved on this device.");
+            } else {
+              setStorageMode("error");
+              setToast("Shared save is unavailable — your change has not been committed yet.");
+            }
+          });
       }
     }, 450);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [data, loaded, storageMode]);
+  }, [data, isPublicPreview, loaded, storageMode]);
 
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3800); return () => clearTimeout(timer); }, [toast]);
 
@@ -228,18 +338,26 @@ function InstallerProvider({ children, viewer }: { children: React.ReactNode; vi
   };
   const uploadFile = async (file: File, purpose: string) => {
     if (viewer.role === "Auditor") throw new Error("Auditor access is read-only");
+    if (storageMode === "local") return storeLocalFile(file, purpose);
     if (storageMode !== "cloud") throw new Error("Shared document storage is not connected");
     const body = new FormData(); body.append("file", file); body.append("purpose", purpose);
     const response = await fetch("/api/files", { method: "POST", body });
     if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Upload failed");
     return await response.json() as { fileName: string; fileKey: string };
   };
+  const openFile = async (fileKey: string) => {
+    if (fileKey.startsWith("local/")) {
+      await downloadLocalFile(fileKey);
+      return;
+    }
+    window.open(`/api/files?key=${encodeURIComponent(fileKey)}`, "_blank", "noopener,noreferrer");
+  };
   const recordAudit = (action: string, detail: string, category = "Administration") => {
     if (viewer.role === "Auditor") return;
     setData((current) => ({ ...current, auditLog: [{ id: crypto.randomUUID(), actor: viewer.fullName, action, detail, category, at: new Date().toISOString() }, ...current.auditLog].slice(0, 250) }));
   };
 
-  const value: OSContextValue = { data, setData: updateData, activeProject, viewer, storageMode, toast, showToast: setToast, dialog, openDialog: setDialog, uploadFile, recordAudit };
+  const value: OSContextValue = { data, setData: updateData, activeProject, viewer, storageMode, toast, showToast: setToast, dialog, openDialog: setDialog, uploadFile, openFile, recordAudit };
   return <OSContext.Provider value={value}>{children}<DialogLayer />{toast && <div className="toast" role="status"><CheckCircle2 size={16}/>{toast}</div>}</OSContext.Provider>;
 }
 
@@ -284,6 +402,12 @@ function DialogLayer() {
   const addAdminUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const request = { name: String(form.get("name") ?? ""), email: String(form.get("email") ?? "").trim().toLowerCase(), role: String(form.get("role") ?? "Installer") as AdminUser["role"] };
+    if (storageMode === "local") {
+      const user: AdminUser = { id: crypto.randomUUID(), ...request, status: "Invited", lastActive: "Preview record · invitation not sent" };
+      setData((current) => ({ ...current, adminUsers: [...current.adminUsers, user] }));
+      recordAudit("Preview user added", `${user.name} · ${user.role}`, "Access"); close(); showToast(`${user.name} was added to this device. No invitation email was sent in public preview.`);
+      return;
+    }
     const response = await fetch("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
     const payload = await response.json() as { user?: AdminUser; error?: string };
     if (!response.ok || !payload.user) { showToast(payload.error || "The invitation could not be sent."); return; }
@@ -313,7 +437,7 @@ function DialogLayer() {
       {dialog === "workflow" && <><span className="eyebrow">WORKFLOW AUTOMATION</span><h2>Create an administration rule</h2><p>Rules are saved with the organisation workspace and can be paused at any time.</p><form className="dialog-form" onSubmit={addWorkflow}><label>Rule name<input name="name" required autoFocus placeholder="e.g. Failed evidence escalation"/></label><label>When this happens<input name="trigger" required placeholder="Evidence is rejected twice"/></label><label>Then do this<input name="action" required placeholder="Notify administrator and Technical Supervisor"/></label><button className="dialog-submit"><Sparkles size={16}/>Activate workflow</button></form></>}
       {dialog === "integration" && <><span className="eyebrow">INTEGRATION ADMINISTRATION</span><h2>Add a connection</h2><form className="dialog-form" onSubmit={addIntegration}><label>Integration name<input name="name" required autoFocus/></label><label>Category<select name="category"><option>Certification</option><option>Grid</option><option>Communications</option><option>Data</option><option>Operations</option></select></label><label>Connection purpose<input name="detail" required placeholder="What this connection supports"/></label><button className="dialog-submit"><ExternalLink size={16}/>Add connection</button></form></>}
       {dialog === "notifications" && <><span className="eyebrow">WORKSPACE ALERTS</span><h2>Notifications</h2><div className="notification-list">{data.notifications.map((item) => <button key={item.id} className={item.read ? "read" : ""} onClick={() => setData((current) => ({ ...current, notifications: current.notifications.map((note) => note.id === item.id ? { ...note, read: true } : note) }))}><span>{item.read ? <CheckCircle2 size={16}/> : <Bell size={16}/>}</span><span><strong>{item.title}</strong><small>{item.detail}</small></span></button>)}</div></>}
-      {dialog === "settings" && <><span className="eyebrow">SETTINGS & INTEGRATIONS</span><h2>Connected workspace</h2><div className={`storage-status ${storageMode}`}><ShieldCheck size={18}/><span><strong>{storageMode === "cloud" ? "Supabase workspace connected" : storageMode === "error" ? "Connection needs attention" : "Connecting"}</strong><small>{storageMode === "cloud" ? "Organisation records and private documents are secured in Supabase." : "Installer OS is waiting for the shared Supabase service; local fallback is disabled to protect organisation data."}</small></span></div><div className="resource-list">{officialResources.map((resource) => <a key={resource.href} href={resource.href} target="_blank" rel="noreferrer"><span><strong>{resource.label}</strong><small>{resource.detail}</small></span><ExternalLink size={15}/></a>)}</div><button className="dialog-secondary" onClick={() => { downloadText("headroom-installer-os-backup.json", JSON.stringify(data, null, 2)); showToast("Workspace backup downloaded."); }}><Download size={15}/>Download workspace backup</button></>}
+      {dialog === "settings" && <><span className="eyebrow">SETTINGS & INTEGRATIONS</span><h2>Connected workspace</h2><div className={`storage-status ${storageMode}`}><ShieldCheck size={18}/><span><strong>{storageMode === "cloud" ? "Supabase workspace connected" : storageMode === "local" ? "Public preview saved on this device" : storageMode === "error" ? "Connection needs attention" : "Connecting"}</strong><small>{storageMode === "cloud" ? "Organisation records and private documents are secured in Supabase." : storageMode === "local" ? "Projects, administration changes and uploaded documents remain available in this browser. Do not enter live customer data in public-preview mode." : "Installer OS is waiting for the shared workspace service."}</small></span></div><div className="resource-list">{officialResources.map((resource) => <a key={resource.href} href={resource.href} target="_blank" rel="noreferrer"><span><strong>{resource.label}</strong><small>{resource.detail}</small></span><ExternalLink size={15}/></a>)}</div><button className="dialog-secondary" onClick={() => { downloadText("headroom-installer-os-backup.json", JSON.stringify(data, null, 2)); showToast("Workspace backup downloaded."); }}><Download size={15}/>Download workspace backup</button></>}
     </section>
   </div>;
 }
@@ -494,7 +618,7 @@ function SitesView({ onOpen }: { onOpen: (id: View) => void }) {
 }
 
 function SiteProofView() {
-  const { data, setData, activeProject, uploadFile, showToast } = useOS();
+  const { data, setData, activeProject, uploadFile, openFile, showToast } = useOS();
   const fileInput = useRef<HTMLInputElement>(null);
   const [pendingCategory, setPendingCategory] = useState("");
   const [reviewBannerDismissed, setReviewBannerDismissed] = useState(false);
@@ -523,11 +647,11 @@ function SiteProofView() {
       <article className="workspace-card">
         <div className="table-toolbar"><div><span className="eyebrow">REQUIRED EVIDENCE</span><h2>Solar PV + battery checklist</h2></div><span className="percentage-label">{score}% complete</span></div>
         <div className="big-progress"><span style={{ width: `${score}%` }} /></div>
-        <div className="proof-checklist">{evidenceCategories.map((item,index) => { const record = records.find((entry) => entry.category === item); return <button key={item} className={record ? "done" : ""} onClick={() => record?.fileKey ? window.open(`/api/files?key=${encodeURIComponent(record.fileKey)}`, "_blank") : requestCapture(item)}><span>{record ? <Check size={15} /> : index + 1}</span><div><strong>{item}</strong><small>{record ? `Captured ${new Date(record.capturedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} · ${record.fileName}` : "Select to add photo or PDF evidence"}</small></div>{record ? <BadgeCheck size={18} /> : <UploadCloud size={18} />}</button>; })}</div>
+        <div className="proof-checklist">{evidenceCategories.map((item,index) => { const record = records.find((entry) => entry.category === item); return <button key={item} className={record ? "done" : ""} onClick={() => record?.fileKey ? void openFile(record.fileKey) : requestCapture(item)}><span>{record ? <Check size={15} /> : index + 1}</span><div><strong>{item}</strong><small>{record ? `Captured ${new Date(record.capturedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} · ${record.fileName}` : "Select to add photo or PDF evidence"}</small></div>{record ? <BadgeCheck size={18} /> : <UploadCloud size={18} />}</button>; })}</div>
       </article>
       <aside className="proof-side">
         <article className="dark-card ts-gate"><span className="eyebrow">TECHNICAL SUPERVISOR GATE</span><div className="gate-score"><ProgressRing value={score} /><div><strong>{score === 100 ? "Ready to review" : "Evidence incomplete"}</strong><small>{evidenceCategories.length-captured.size} required items remain</small></div></div><ul><li className="complete"><Check size={13} /> Product set verified</li><li className="complete"><Check size={13} /> Installer competency current</li><li className={score === 100 ? "complete" : ""}><Check size={13} /> Required site evidence</li><li className={sent ? "complete" : ""}><Check size={13} /> TS declaration requested</li></ul><button disabled={score !== 100 || sent} onClick={sendReview}><Send size={15} /> {sent ? "Review requested" : `Send to ${activeProject.technicalSupervisor}`}</button></article>
-        <article className="workspace-card evidence-gallery"><div className="card-title"><div><span className="eyebrow">LATEST CAPTURES</span><h2>Evidence feed</h2></div><button onClick={() => downloadText(`${activeProject.ref}-evidence.json`, JSON.stringify(records, null, 2))} aria-label="Export evidence register"><Download size={14} /></button></div><div className="evidence-thumbs">{records.slice(-3).map((record, index) => <button className={`thumb ${["roof","inverter","battery"][index % 3]}`} key={record.id} onClick={() => record.fileKey ? window.open(`/api/files?key=${encodeURIComponent(record.fileKey)}`, "_blank") : requestCapture(record.category)}><i>{new Date(record.capturedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</i><b>{record.category}</b></button>)}<button onClick={() => requestCapture()}><Plus size={18} /><small>Add capture</small></button></div></article>
+        <article className="workspace-card evidence-gallery"><div className="card-title"><div><span className="eyebrow">LATEST CAPTURES</span><h2>Evidence feed</h2></div><button onClick={() => downloadText(`${activeProject.ref}-evidence.json`, JSON.stringify(records, null, 2))} aria-label="Export evidence register"><Download size={14} /></button></div><div className="evidence-thumbs">{records.slice(-3).map((record, index) => <button className={`thumb ${["roof","inverter","battery"][index % 3]}`} key={record.id} onClick={() => record.fileKey ? void openFile(record.fileKey) : requestCapture(record.category)}><i>{new Date(record.capturedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</i><b>{record.category}</b></button>)}<button onClick={() => requestCapture()}><Plus size={18} /><small>Add capture</small></button></div></article>
       </aside>
     </section>
   </div>;
@@ -587,13 +711,13 @@ function MidView() {
 }
 
 function PassportView() {
-  const { data, setData, activeProject, uploadFile, showToast } = useOS();
+  const { data, setData, activeProject, uploadFile, openFile, showToast } = useOS();
   const docs = data.passportDocuments[activeProject.id] ?? defaultDocs;
   const shared = Boolean(data.passportShared[activeProject.id]);
   const [shareBanner, setShareBanner] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null); const [pendingDocument, setPendingDocument] = useState(0);
   const readyCount = docs.filter((document) => document.status !== "Required" && !document.status.startsWith("Awaiting")).length;
-  const chooseDocument = (index: number) => { const document = docs[index]; if (document.fileKey) window.open(`/api/files?key=${encodeURIComponent(document.fileKey)}`, "_blank"); else { setPendingDocument(index); fileInput.current?.click(); } };
+  const chooseDocument = (index: number) => { const document = docs[index]; if (document.fileKey) void openFile(document.fileKey); else { setPendingDocument(index); fileInput.current?.click(); } };
   const uploadDocument = async (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; const stored = await uploadFile(file, `passport/${activeProject.id}`); setData((current) => ({ ...current, passportDocuments: { ...current.passportDocuments, [activeProject.id]: (current.passportDocuments[activeProject.id] ?? defaultDocs).map((document,index) => index === pendingDocument ? { ...document, status: "Ready", fileName: stored.fileName, fileKey: stored.fileKey } : document) } })); event.target.value = ""; showToast(`${docs[pendingDocument].name} added to the customer passport.`); };
   const sharePassport = () => { setData((current) => ({ ...current, passportShared: { ...current.passportShared, [activeProject.id]: true } })); setShareBanner(true); const subject = encodeURIComponent(`${activeProject.site} — your Headroom energy passport`); const body = encodeURIComponent(`Hello ${activeProject.customer},\n\nYour installation handover record for ${activeProject.site} is ready to review.\n\nRegards,\nStratford Energy Solutions`); window.location.href = `mailto:${activeProject.customerEmail}?subject=${subject}&body=${body}`; showToast("Customer email prepared and share recorded."); };
   return <div className="module-page">
@@ -720,6 +844,11 @@ function AdminView() {
   };
   const changeUser = async (id: string, patch: Partial<AdminUser>, action: string) => {
     const user = data.adminUsers.find((item) => item.id === id);
+    if (storageMode === "local") {
+      setData((current) => ({ ...current, adminUsers: current.adminUsers.map((item) => item.id === id ? { ...item, ...patch } : item) }));
+      recordAudit(action, user?.name ?? "Workspace user", "Access"); showToast(`${user?.name ?? "User"} updated on this device.`);
+      return;
+    }
     const response = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
     const payload = await response.json() as { user?: AdminUser; error?: string };
     if (!response.ok || !payload.user) { showToast(payload.error || "The user could not be updated."); return; }
@@ -727,6 +856,11 @@ function AdminView() {
     recordAudit(action, user?.name ?? "Workspace user", "Access"); showToast(`${user?.name ?? "User"} updated.`);
   };
   const resendInvitation = async (user: AdminUser) => {
+    if (storageMode === "local") {
+      setData((current) => ({ ...current, adminUsers: current.adminUsers.map((item) => item.id === user.id ? { ...item, lastActive: "Preview invitation refreshed" } : item) }));
+      recordAudit("Preview invitation refreshed", user.name, "Access"); showToast("Invitation activity was recorded locally; no email was sent in public preview.");
+      return;
+    }
     const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "resend" }) });
     const payload = await response.json() as { error?: string };
     if (!response.ok) { showToast(payload.error || "The invitation could not be resent."); return; }
@@ -752,7 +886,7 @@ function AdminView() {
       </article>
 
       <aside className="workspace-card admin-policy-card">
-        <div className="table-toolbar"><div><span className="eyebrow">SECURITY & GOVERNANCE</span><h2>Workspace policies</h2></div><span className={`sync-chip ${storageMode}`}>{storageMode === "cloud" ? "CLOUD" : storageMode === "error" ? "ERROR" : "SYNC"}</span></div>
+        <div className="table-toolbar"><div><span className="eyebrow">SECURITY & GOVERNANCE</span><h2>Workspace policies</h2></div><span className={`sync-chip ${storageMode}`}>{storageMode === "cloud" ? "CLOUD" : storageMode === "local" ? "ON DEVICE" : storageMode === "error" ? "ERROR" : "SYNC"}</span></div>
         <div className="policy-list">{[
           ["requireMfa","Require secure sign-in","Apply the hosted identity gate to workspace access"],
           ["nightlyBackup","Nightly workspace backup","Maintain a recoverable administration snapshot"],
@@ -840,7 +974,7 @@ function InstallerApp() {
           <div className="topbar-actions">
             <label className="quick-search"><Search size={16} /><input ref={searchRef} value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") runSearch(); }} aria-label="Search projects" placeholder="Search projects" /><kbd>⌘ K</kbd></label>
             {isPublicPreview && <span className="public-preview-chip">PUBLIC PREVIEW · LOGIN OFF</span>}
-            <span className={`sync-chip ${storageMode}`} title={storageMode === "cloud" ? "Supabase workspace saved" : storageMode === "error" ? "Shared save needs attention" : "Connecting to Supabase"}>{storageMode === "cloud" ? "SAVED" : storageMode === "error" ? "ERROR" : "SYNC"}</span>
+            <span className={`sync-chip ${storageMode}`} title={storageMode === "cloud" ? "Supabase workspace saved" : storageMode === "local" ? "Public preview saved in this browser" : storageMode === "error" ? "Workspace save needs attention" : "Connecting to the workspace"}>{storageMode === "cloud" ? "SAVED" : storageMode === "local" ? "ON DEVICE" : storageMode === "error" ? "ERROR" : "SYNC"}</span>
             <button className="icon-button" aria-label="Notifications" onClick={() => openDialog("notifications")}><Bell size={18} />{data.notifications.some((item) => !item.read) && <i />}</button>
             <button className="icon-button help-button" aria-label="Official installer resources" onClick={() => openDialog("settings")}><HelpCircle size={18}/></button>
             {canWrite && <button className="primary-button" onClick={() => openDialog("new-project")}><ClipboardCheck size={17} /> New installation</button>}

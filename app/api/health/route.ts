@@ -7,17 +7,18 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const configured = isSupabaseConfigured();
   if (!configured) {
+    const publicPreview = isPublicAccessEnabled();
     return Response.json({
-      status: "configuration-required",
+      status: publicPreview ? "preview-local" : "configuration-required",
       app: "Headroom Installer OS",
-      access: isPublicAccessEnabled() ? "public-preview" : "authenticated",
-      auth: "not-configured",
+      access: publicPreview ? "public-preview" : "authenticated",
+      auth: publicPreview ? "disabled" : "not-configured",
       database: "not-configured",
-      storage: "not-configured",
+      storage: publicPreview ? "browser-local" : "not-configured",
       territory: "postcodes.io",
       deployment: process.env.VERCEL_ENV ?? "local",
       commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-    }, { status: 503, headers: { "cache-control": "no-store" } });
+    }, { status: publicPreview ? 200 : 503, headers: { "cache-control": "no-store" } });
   }
 
   try {
@@ -36,6 +37,20 @@ export async function GET() {
       commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
     }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
+    if (isPublicAccessEnabled()) {
+      console.warn("[health] Supabase unavailable; public preview is using device-local persistence", error);
+      return Response.json({
+        status: "preview-local",
+        app: "Headroom Installer OS",
+        access: "public-preview",
+        auth: "disabled",
+        database: "unavailable",
+        storage: "browser-local",
+        territory: "postcodes.io",
+        deployment: process.env.VERCEL_ENV ?? "local",
+        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+      }, { headers: { "cache-control": "no-store" } });
+    }
     console.error("[health] Supabase readiness check failed", error);
     return Response.json({
       status: "degraded",

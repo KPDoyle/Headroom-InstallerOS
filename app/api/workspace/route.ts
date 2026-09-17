@@ -1,7 +1,7 @@
 import type { UserRole, UserStatus, Viewer } from "../../../lib/auth-types";
 import type postgres from "postgres";
 import { authErrorResponse, requireViewer, writeAuditEvent } from "../../../lib/auth";
-import { getDatabase } from "../../../lib/database";
+import { ensureSchema, getDatabase } from "../../../lib/database";
 import { isPublicAccessViewer } from "../../../lib/public-access";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +59,7 @@ async function organisationUsers(viewer: Viewer) {
 export async function GET() {
   try {
     const viewer = await requireViewer();
+    await ensureSchema();
     const sql = getDatabase();
     const [records, adminUsers, auditEvents] = await Promise.all([
       sql<WorkspaceEnvelope[]>`
@@ -107,6 +108,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const viewer = await requireViewer();
+    await ensureSchema();
     if (viewer.role === "Auditor") {
       return Response.json({ error: "Auditor access is read-only" }, { status: 403 });
     }

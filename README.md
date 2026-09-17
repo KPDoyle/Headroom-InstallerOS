@@ -29,6 +29,7 @@ The application links to the MCS Product Directory, MCS Standards & Tools Librar
 ## Data and files
 
 - The current staged release runs in a clearly labelled public-preview mode with one shared Administrator workspace and no login prompt.
+- If the connected Supabase project is unavailable, public-preview mode remains usable and automatically saves projects, administration changes and uploaded documents in the current browser. The interface labels this state `ON DEVICE`; data is not shared across devices until cloud service is restored.
 - Supabase Auth remains implemented for passwordless, individual installer accounts and secure server-managed sessions when access control is switched back on.
 - Supabase Postgres holds organisation-scoped workspace data, account profiles and durable audit events.
 - The private Supabase `installer-documents` bucket holds evidence and handover documents up to 10 MB; files are streamed through authenticated application routes.
@@ -39,7 +40,7 @@ Connect a Supabase integration to the Vercel project for Production, Preview and
 
 On the first successful health check the server idempotently installs the maintained schema and private storage policies. Set `HEADROOM_REQUIRE_LOGIN=true` in Vercel and redeploy when individual accounts should become mandatory. The first authenticated person then becomes the bootstrap Administrator; subsequent accounts are invited from Administration Centre.
 
-Public-preview mode is intended for demonstration and product development only. Anyone with the URL can view or change the shared workspace, so do not enter live customer information until login is re-enabled.
+Public-preview mode is intended for demonstration and product development only. Do not enter live customer information until login is re-enabled. Device-local fallback records stay within that browser and should be exported before browser storage is cleared.
 
 ## Development
 

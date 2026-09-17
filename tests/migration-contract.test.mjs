@@ -46,9 +46,17 @@ test("protects application routes and exposes real account administration", asyn
 test("labels the staged public workspace and preserves the login switch", async () => {
   const installer = await read("app/installer-app.tsx");
   const health = await read("app/api/health/route.ts");
+  const auth = await read("lib/auth.ts");
+  const page = await read("app/page.tsx");
   assert.match(installer, /PUBLIC PREVIEW · LOGIN OFF/);
+  assert.match(installer, /window\.localStorage/);
+  assert.match(installer, /window\.indexedDB/);
+  assert.match(installer, /ON DEVICE/);
   assert.match(health, /public-preview/);
   assert.match(health, /authenticated/);
+  assert.match(health, /preview-local/);
+  assert.match(auth, /createPublicViewer\(PUBLIC_ACCESS_ORGANISATION_ID/);
+  assert.match(page, /!isSupabaseConfigured\(\) && !isPublicAccessEnabled\(\)/);
 });
 
 test("keeps live Territory Intelligence behind a server route", async () => {
